@@ -19,12 +19,14 @@ Usage
 """
 
 import argparse
+import io
 import logging
 from datetime import date
 from pathlib import Path
 
 import pandas as pd
 import requests
+from bs4 import BeautifulSoup
 import yfinance as yf
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -101,7 +103,11 @@ MAJOR_ADRS = {
 # ── Ticker list helpers ────────────────────────────────────────────────────────
 
 def _scrape_wiki_sp_table(url: str, label: str) -> list[str]:
-    """Generic Wikipedia S&P table scraper with browser User-Agent to avoid 403."""
+    """
+    Scrape an S&P index constituent table from Wikipedia.
+    Uses BeautifulSoup to isolate just the wikitable before handing it to
+    pandas — avoids lxml flooding stdout when parsing the full Wikipedia page.
+    """
     log.info("Fetching %s tickers from Wikipedia …", label)
     headers = {
         "User-Agent": (
@@ -112,7 +118,27 @@ def _scrape_wiki_sp_table(url: str, label: str) -> list[str]:
     }
     resp = requests.get(url, headers=headers, timeout=20)
     resp.raise_for_status()
-    df = pd.read_html(resp.text)[0]
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # Find the first wikitable that has a "Symbol" column header
+    target_table = None
+    for table in soup.find_all("table", {"class": "wikitable"}):
+        headers_row = table.find("tr")
+        if headers_row and "Symbol" in headers_row.get_text():
+            target_table = table
+            break
+
+    if target_table is None:
+        raise ValueError(f"Could not find a 'Symbol' table on {url}")
+
+    # Parse only that one table — avoids lxml stdout noise on the full page
+    df = pd.read_html(io.StringIO(str(target_table)))[0]
+
+    # Flatten MultiIndex columns if present
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(-1)
+
     tickers = df["Symbol"].str.replace(".", "-", regex=False).tolist()
     log.info("  → %d %s tickers found.", len(tickers), label)
     return tickers
