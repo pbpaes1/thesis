@@ -2,3 +2,8 @@ yfinance
 pandas
 numpy
 pyarrow
+matplotlib
+seaborn
+plotly
+ipykernel
+ipywidgets
