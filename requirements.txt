@@ -1,5 +1,4 @@
-# Add your dependencies here, e.g.:
-# numpy
-# pandas
-# matplotlib
-# scikit-learn
+yfinance
+pandas
+numpy
+pyarrow
