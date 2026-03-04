@@ -1,23 +1,21 @@
 """
 fetch_data.py
 -------------
-Downloads historical OHLCV price data from Yahoo Finance via yfinance.
+Builds a single long-format dataset (one row per stock × day) with:
+  - All S&P 500 constituents            (source = "sp500")
+  - Major ADRs traded on US exchanges   (source = "adr")
+  - S&P 400 Mid-Cap stocks              (source = "sp400")
 
-Supports:
-  - Full S&P 500 constituent list (scraped from Wikipedia)
-  - Arbitrary lists of US or international tickers
-  - Configurable date range and output format (Parquet or CSV)
+Output schema
+─────────────
+  date (datetime) | ticker (str) | close (float) | volume (int) | source (str)
 
-International ticker convention (Yahoo Finance suffixes):
-  ASML.AS  → Euronext Amsterdam
-  SAP.DE   → XETRA / Frankfurt
-  MC.PA    → Euronext Paris
-  0700.HK  → Hong Kong
-  7203.T   → Tokyo
-  (no suffix) → US markets (NYSE / NASDAQ)
-
-Usage:
-  python src/fetch_data.py
+Usage
+─────
+  python src/fetch_data.py                      # full run, parquet
+  python src/fetch_data.py --start 2010-01-01   # custom date range
+  python src/fetch_data.py --fmt csv            # save as CSV
+  python src/fetch_data.py --no-sp400           # skip S&P 400
 """
 
 import argparse
@@ -25,11 +23,10 @@ import logging
 from pathlib import Path
 
 import pandas as pd
+import requests
 import yfinance as yf
 
-# ---------------------------------------------------------------------------
-# Logging
-# ---------------------------------------------------------------------------
+# ── Logging ───────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -37,114 +34,230 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-SP500_WIKI_URL = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+# ── Constants ─────────────────────────────────────────────────────────────────
+SP500_WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
+SP400_WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
 
-# Max history available on Yahoo Finance is roughly 1993-01-01 for most US stocks
 DEFAULT_START = "1993-01-01"
-DEFAULT_END = "2025-12-31"
+DEFAULT_END   = "2025-12-31"
+BATCH_SIZE    = 50
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 
+# ── Major ADRs traded on US exchanges ─────────────────────────────────────────
+# Foreign companies with primary listings abroad but quoted in USD on NYSE/NASDAQ.
+MAJOR_ADRS = {
+    # Semiconductors & Tech
+    "TSM":   "TSMC (Taiwan)",
+    "ASML":  "ASML (Netherlands)",
+    "SONY":  "Sony (Japan)",
+    "SAP":   "SAP (Germany)",
+    "INFY":  "Infosys (India)",
+    "WIT":   "Wipro (India)",
+    "ERIC":  "Ericsson (Sweden)",
+    "NOK":   "Nokia (Finland)",
+    # Pharma & Healthcare
+    "NVO":   "Novo Nordisk (Denmark)",
+    "AZN":   "AstraZeneca (UK)",
+    "RHHBY": "Roche (Switzerland)",
+    "NVS":   "Novartis (Switzerland)",
+    "SNY":   "Sanofi (France)",
+    "GSK":   "GSK (UK)",
+    # Financials
+    "HSBC":  "HSBC (UK)",
+    "ING":   "ING Group (Netherlands)",
+    "SAN":   "Banco Santander (Spain)",
+    "BBVA":  "BBVA (Spain)",
+    "ITUB":  "Itaú Unibanco (Brazil)",
+    "VALE":  "Vale (Brazil)",
+    # Energy
+    "SHEL":  "Shell (UK/Netherlands)",
+    "BP":    "BP (UK)",
+    "TTE":   "TotalEnergies (France)",
+    "E":     "Eni (Italy)",
+    "EQNR":  "Equinor (Norway)",
+    # Consumer
+    "NSRGY": "Nestlé (Switzerland)",
+    "LVMUY": "LVMH (France)",
+    "LRLCY": "L'Oréal (France)",
+    "UL":    "Unilever (UK/NL)",
+    "DEO":   "Diageo (UK)",
+    "BUD":   "AB InBev (Belgium)",
+    # Auto
+    "TM":    "Toyota (Japan)",
+    "HMC":   "Honda (Japan)",
+    "STLA":  "Stellantis (Netherlands)",
+    "VWAGY": "Volkswagen (Germany)",
+    # China / Asia
+    "BABA":  "Alibaba (China)",
+    "BIDU":  "Baidu (China)",
+    "JD":    "JD.com (China)",
+    "PDD":   "PDD Holdings (China)",
+    "SE":    "Sea Ltd (Singapore)",
+}
 
-# ---------------------------------------------------------------------------
-# Ticker retrieval helpers
-# ---------------------------------------------------------------------------
 
-def get_sp500_tickers() -> list[str]:
-    """Scrape the current S&P 500 constituent list from Wikipedia."""
-    log.info("Fetching S&P 500 tickers from Wikipedia …")
-    tables = pd.read_html(SP500_WIKI_URL)
-    df = tables[0]  # first table = constituents
+# ── Ticker list helpers ────────────────────────────────────────────────────────
+
+def _scrape_wiki_sp_table(url: str, label: str) -> list[str]:
+    """Generic Wikipedia S&P table scraper with browser User-Agent to avoid 403."""
+    log.info("Fetching %s tickers from Wikipedia …", label)
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/122.0 Safari/537.36"
+        )
+    }
+    resp = requests.get(url, headers=headers, timeout=20)
+    resp.raise_for_status()
+    df = pd.read_html(resp.text)[0]
     tickers = df["Symbol"].str.replace(".", "-", regex=False).tolist()
-    log.info("Found %d S&P 500 tickers.", len(tickers))
+    log.info("  → %d %s tickers found.", len(tickers), label)
     return tickers
 
 
-def get_international_example_tickers() -> list[str]:
+def get_sp500_tickers() -> list[str]:
+    return _scrape_wiki_sp_table(SP500_WIKI, "S&P 500")
+
+
+def get_sp400_tickers() -> list[str]:
+    return _scrape_wiki_sp_table(SP400_WIKI, "S&P 400")
+
+
+def get_adr_tickers() -> list[str]:
+    return list(MAJOR_ADRS.keys())
+
+
+# ── Universe builder ───────────────────────────────────────────────────────────
+
+def build_universe(include_sp400: bool = True) -> pd.DataFrame:
     """
-    A small curated set of large-cap international stocks to illustrate
-    cross-border data retrieval. Extend as needed.
+    Returns a DataFrame [ticker, source].
+    Priority on deduplication: sp500 > adr > sp400.
     """
-    return [
-        # Europe
-        "ASML.AS",   # ASML – Netherlands
-        "SAP.DE",    # SAP – Germany
-        "MC.PA",     # LVMH – France
-        "NESN.SW",   # Nestlé – Switzerland
-        "BP.L",      # BP – UK
-        # Asia-Pacific
-        "7203.T",    # Toyota – Japan
-        "0700.HK",   # Tencent – Hong Kong
-        "005930.KS", # Samsung – South Korea
-    ]
+    rows: list[dict] = []
+
+    for t in get_sp500_tickers():
+        rows.append({"ticker": t, "source": "sp500"})
+
+    seen = {r["ticker"] for r in rows}
+
+    for t in get_adr_tickers():
+        if t not in seen:
+            rows.append({"ticker": t, "source": "adr"})
+            seen.add(t)
+
+    if include_sp400:
+        for t in get_sp400_tickers():
+            if t not in seen:
+                rows.append({"ticker": t, "source": "sp400"})
+                seen.add(t)
+
+    universe = pd.DataFrame(rows).reset_index(drop=True)
+    log.info(
+        "Universe: %d total tickers  (sp500=%d, adr=%d, sp400=%d)",
+        len(universe),
+        (universe.source == "sp500").sum(),
+        (universe.source == "adr").sum(),
+        (universe.source == "sp400").sum(),
+    )
+    return universe
 
 
-# ---------------------------------------------------------------------------
-# Download logic
-# ---------------------------------------------------------------------------
+# ── Download ───────────────────────────────────────────────────────────────────
 
-def download_price_data(
-    tickers: list[str],
+def download_long(
+    universe: pd.DataFrame,
     start: str = DEFAULT_START,
     end: str = DEFAULT_END,
-    batch_size: int = 50,
+    batch_size: int = BATCH_SIZE,
 ) -> pd.DataFrame:
     """
-    Download daily OHLCV data for a list of tickers.
-
-    Downloads in batches to avoid hitting Yahoo Finance rate limits.
-
-    Returns a MultiLevel DataFrame with columns (Price field, Ticker).
+    Downloads daily adjusted close + volume for the full universe.
+    Returns a long-format DataFrame:
+      date | ticker | close | volume | source
     """
-    all_data: list[pd.DataFrame] = []
-    total = len(tickers)
+    tickers = universe["ticker"].tolist()
+    source_map = universe.set_index("ticker")["source"].to_dict()
 
-    for i in range(0, total, batch_size):
+    chunks: list[pd.DataFrame] = []
+    total_batches = -(-len(tickers) // batch_size)  # ceiling division
+
+    for i in range(0, len(tickers), batch_size):
         batch = tickers[i : i + batch_size]
-        log.info(
-            "Downloading batch %d/%d  (%d tickers) …",
-            i // batch_size + 1,
-            -(-total // batch_size),  # ceil division
-            len(batch),
-        )
-        df = yf.download(
+        batch_num = i // batch_size + 1
+        log.info("Batch %d/%d — %d tickers …", batch_num, total_batches, len(batch))
+
+        raw = yf.download(
             tickers=batch,
             start=start,
             end=end,
-            auto_adjust=True,   # adjusts for splits and dividends
+            auto_adjust=True,
             progress=False,
         )
-        all_data.append(df)
 
-    combined = pd.concat(all_data, axis=1)
+        if raw.empty:
+            log.warning("  Batch %d returned no data.", batch_num)
+            continue
 
-    # Drop fully-NaN tickers (e.g., newly listed or delisted within range)
-    close = combined["Close"]
-    valid_tickers = close.columns[close.notna().any()].tolist()
-    n_dropped = len(tickers) - len(valid_tickers)
-    if n_dropped:
-        log.warning("Dropped %d tickers with no data.", n_dropped)
+        # yfinance returns MultiIndex columns (field, ticker) for multi-ticker,
+        # and flat columns for a single ticker — handle both cases
+        if isinstance(raw.columns, pd.MultiIndex):
+            close_wide  = raw["Close"]
+            volume_wide = raw["Volume"]
+        else:
+            t = batch[0]
+            close_wide  = raw[["Close"]].rename(columns={"Close": t})
+            volume_wide = raw[["Volume"]].rename(columns={"Volume": t})
 
-    return combined
+        close_long = (
+            close_wide.reset_index()
+            .melt(id_vars="Date", var_name="ticker", value_name="close")
+        )
+        volume_long = (
+            volume_wide.reset_index()
+            .melt(id_vars="Date", var_name="ticker", value_name="volume")
+        )
+
+        chunk = close_long.merge(volume_long, on=["Date", "ticker"])
+        chunk = chunk.rename(columns={"Date": "date"})
+        chunk["source"] = chunk["ticker"].map(source_map)
+        chunks.append(chunk)
+
+    if not chunks:
+        raise RuntimeError("No data downloaded — check tickers and date range.")
+
+    df = pd.concat(chunks, ignore_index=True)
+
+    # Drop rows where both close and volume are NaN (not listed in this period)
+    df = df.dropna(subset=["close", "volume"], how="all")
+
+    df["date"]   = pd.to_datetime(df["date"])
+    df["volume"] = df["volume"].astype("Int64")  # nullable int (pandas handles NaN)
+    df = df[["date", "ticker", "close", "volume", "source"]]
+    df = df.sort_values(["ticker", "date"]).reset_index(drop=True)
+
+    log.info(
+        "Result: %s rows | %d tickers | %d trading days",
+        f"{len(df):,}",
+        df["ticker"].nunique(),
+        df["date"].nunique(),
+    )
+    return df
 
 
-# ---------------------------------------------------------------------------
-# Persistence helpers
-# ---------------------------------------------------------------------------
+# ── Save ───────────────────────────────────────────────────────────────────────
 
-def save_data(df: pd.DataFrame, name: str, fmt: str = "parquet") -> Path:
-    """Save DataFrame to data/raw/<name>.<fmt>."""
+def save(df: pd.DataFrame, fmt: str = "parquet") -> Path:
     out_dir = DATA_DIR / "raw"
     out_dir.mkdir(parents=True, exist_ok=True)
-    path = out_dir / f"{name}.{fmt}"
+    path = out_dir / f"universe.{fmt}"
 
     if fmt == "parquet":
-        df.to_parquet(path)
+        df.to_parquet(path, index=False)
     elif fmt == "csv":
-        df.to_csv(path)
+        df.to_csv(path, index=False)
     else:
         raise ValueError(f"Unsupported format: {fmt}")
 
@@ -152,59 +265,25 @@ def save_data(df: pd.DataFrame, name: str, fmt: str = "parquet") -> Path:
     return path
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
+# ── CLI ────────────────────────────────────────────────────────────────────────
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Download historical price data.")
-    parser.add_argument(
-        "--universe",
-        choices=["sp500", "international", "both"],
-        default="sp500",
-        help="Which ticker universe to download (default: sp500).",
-    )
-    parser.add_argument("--start", default=DEFAULT_START, help="Start date YYYY-MM-DD.")
-    parser.add_argument("--end", default=DEFAULT_END, help="End date YYYY-MM-DD.")
-    parser.add_argument(
-        "--fmt",
-        choices=["parquet", "csv"],
-        default="parquet",
-        help="Output file format (default: parquet).",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=50,
-        help="Number of tickers per yfinance download call (default: 50).",
-    )
-    return parser.parse_args()
+    p = argparse.ArgumentParser(description="Download long-format price dataset.")
+    p.add_argument("--start",      default=DEFAULT_START, help="Start date YYYY-MM-DD")
+    p.add_argument("--end",        default=DEFAULT_END,   help="End date YYYY-MM-DD")
+    p.add_argument("--fmt",        choices=["parquet", "csv"], default="parquet")
+    p.add_argument("--batch-size", type=int, default=BATCH_SIZE)
+    p.add_argument("--no-sp400",   action="store_true", help="Skip S&P 400 mid-caps")
+    return p.parse_args()
 
 
 def main() -> None:
     args = parse_args()
-
-    tickers_sp500 = get_sp500_tickers() if args.universe in ("sp500", "both") else []
-    tickers_intl = get_international_example_tickers() if args.universe in ("international", "both") else []
-
-    if args.universe == "both":
-        # Download each universe separately so files are cleanly separated
-        if tickers_sp500:
-            df_sp500 = download_price_data(tickers_sp500, args.start, args.end, args.batch_size)
-            save_data(df_sp500, "sp500", args.fmt)
-
-        if tickers_intl:
-            df_intl = download_price_data(tickers_intl, args.start, args.end, args.batch_size)
-            save_data(df_intl, "international", args.fmt)
-
-    elif args.universe == "sp500":
-        df = download_price_data(tickers_sp500, args.start, args.end, args.batch_size)
-        save_data(df, "sp500", args.fmt)
-
-    else:  # international
-        df = download_price_data(tickers_intl, args.start, args.end, args.batch_size)
-        save_data(df, "international", args.fmt)
-
+    universe = build_universe(include_sp400=not args.no_sp400)
+    df = download_long(universe, args.start, args.end, args.batch_size)
+    save(df, args.fmt)
+    print("\nSample (first 3 rows per source):")
+    print(df.groupby("source").head(3).to_string(index=False))
     log.info("Done.")
 
 
