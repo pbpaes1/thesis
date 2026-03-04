@@ -2,6 +2,7 @@ yfinance
 pandas
 numpy
 pyarrow
+lxml
 matplotlib
 seaborn
 plotly
