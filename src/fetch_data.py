@@ -20,6 +20,7 @@ Usage
 
 import argparse
 import logging
+from datetime import date
 from pathlib import Path
 
 import pandas as pd
@@ -39,7 +40,7 @@ SP500_WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies"
 SP400_WIKI = "https://en.wikipedia.org/wiki/List_of_S%26P_400_companies"
 
 DEFAULT_START = "1993-01-01"
-DEFAULT_END   = "2025-12-31"
+DEFAULT_END   = date.today().isoformat()   # always up to today
 BATCH_SIZE    = 50
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
