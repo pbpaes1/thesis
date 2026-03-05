@@ -8,7 +8,9 @@ Builds a single long-format dataset (one row per stock × day) with:
 
 Output schema
 ─────────────
-  date (datetime) | ticker (str) | close (float) | volume (int) | source (str)
+  date       (datetime) | ticker    (str)   | open      (float)
+  high       (float)    | low       (float)  | close     (float)
+  adj_close  (float)    | volume    (int)    | source    (str)
 
 Usage
 ─────
@@ -194,6 +196,17 @@ def build_universe(include_sp400: bool = True) -> pd.DataFrame:
 
 # ── Download ───────────────────────────────────────────────────────────────────
 
+# Fields to extract from yfinance (auto_adjust=False gives raw OHLC + Adj Close separately)
+_FIELDS = {
+    "Open":      "open",
+    "High":      "high",
+    "Low":       "low",
+    "Close":     "close",
+    "Adj Close": "adj_close",
+    "Volume":    "volume",
+}
+
+
 def download_long(
     universe: pd.DataFrame,
     start: str = DEFAULT_START,
@@ -201,9 +214,9 @@ def download_long(
     batch_size: int = BATCH_SIZE,
 ) -> pd.DataFrame:
     """
-    Downloads daily adjusted close + volume for the full universe.
+    Downloads daily OHLCV + adjusted close for the full universe.
     Returns a long-format DataFrame:
-      date | ticker | close | volume | source
+      date | ticker | open | high | low | close | adj_close | volume | source
     """
     tickers = universe["ticker"].tolist()
     source_map = universe.set_index("ticker")["source"].to_dict()
@@ -220,7 +233,7 @@ def download_long(
             tickers=batch,
             start=start,
             end=end,
-            auto_adjust=True,
+            auto_adjust=False,   # keep raw OHLC and Adj Close as separate columns
             progress=False,
         )
 
@@ -230,24 +243,29 @@ def download_long(
 
         # yfinance returns MultiIndex columns (field, ticker) for multi-ticker,
         # and flat columns for a single ticker — handle both cases
-        if isinstance(raw.columns, pd.MultiIndex):
-            close_wide  = raw["Close"]
-            volume_wide = raw["Volume"]
-        else:
-            t = batch[0]
-            close_wide  = raw[["Close"]].rename(columns={"Close": t})
-            volume_wide = raw[["Volume"]].rename(columns={"Volume": t})
+        is_multi = isinstance(raw.columns, pd.MultiIndex)
 
-        close_long = (
-            close_wide.reset_index()
-            .melt(id_vars="Date", var_name="ticker", value_name="close")
-        )
-        volume_long = (
-            volume_wide.reset_index()
-            .melt(id_vars="Date", var_name="ticker", value_name="volume")
-        )
+        melted_parts: list[pd.DataFrame] = []
+        for yf_col, out_col in _FIELDS.items():
+            if is_multi:
+                if yf_col not in raw.columns.get_level_values(0):
+                    continue
+                wide = raw[yf_col]
+            else:
+                if yf_col not in raw.columns:
+                    continue
+                wide = raw[[yf_col]].rename(columns={yf_col: batch[0]})
 
-        chunk = close_long.merge(volume_long, on=["Date", "ticker"])
+            melted = (
+                wide.reset_index()
+                .melt(id_vars="Date", var_name="ticker", value_name=out_col)
+            )
+            melted_parts.append(melted.set_index(["Date", "ticker"]))
+
+        if not melted_parts:
+            continue
+
+        chunk = pd.concat(melted_parts, axis=1).reset_index()
         chunk = chunk.rename(columns={"Date": "date"})
         chunk["source"] = chunk["ticker"].map(source_map)
         chunks.append(chunk)
@@ -257,12 +275,13 @@ def download_long(
 
     df = pd.concat(chunks, ignore_index=True)
 
-    # Drop rows where both close and volume are NaN (not listed in this period)
-    df = df.dropna(subset=["close", "volume"], how="all")
+    # Drop rows where all price columns are NaN (not listed in this period)
+    price_cols = ["open", "high", "low", "close", "adj_close"]
+    df = df.dropna(subset=price_cols, how="all")
 
     df["date"]   = pd.to_datetime(df["date"])
     df["volume"] = df["volume"].astype("Int64")  # nullable int (pandas handles NaN)
-    df = df[["date", "ticker", "close", "volume", "source"]]
+    df = df[["date", "ticker", "open", "high", "low", "close", "adj_close", "volume", "source"]]
     df = df.sort_values(["ticker", "date"]).reset_index(drop=True)
 
     log.info(
