@@ -216,7 +216,7 @@ def download_long(
     """
     Downloads daily OHLCV + adjusted close for the full universe.
     Returns a long-format DataFrame:
-      date | ticker | open | high | low | close | adj_close | volume | source
+       date | ticker | open | high | low | close | adj_close | volume | source
     """
     tickers = universe["ticker"].tolist()
     source_map = universe.set_index("ticker")["source"].to_dict()
