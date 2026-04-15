@@ -77,7 +77,8 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── raw/                # Source data (not tracked)
 │   ├── quality/            # Quality reports + filtered universe (not tracked)
 │   ├── aligned_common_dates/  # Aligned macro + universe files (not tracked)
-│   └── features/           # Final engineered dataset (not tracked)
+│   ├── features/           # Final engineered feature dataset (not tracked)
+│   └── episodes/           # DRL episodic dataset (not tracked)
 ├── notebooks/
 │   └── explore_data.ipynb  # Interactive data exploration
 ├── src/
@@ -85,6 +86,7 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   └── check_universe_gaps.py  # Quality checks + date filtering
 │   └── align_common_dates.py   # Date alignment + interpolation for macro files
 │   └── build_features.py       # Technical indicators + macro merge + export
+│   └── generate_episodes.py    # DRL episode generation from engineered features
 ├── requirements.txt
 └── README.md
 ```
@@ -140,6 +142,22 @@ Final export window defaults to:
 
 Indicator warm-up uses earlier data (from 2009-H2) before final trimming.
 
+### 5) Generate DRL episodes for tax-aware exit timing
+
+```powershell
+python src/generate_episodes.py
+```
+
+Main final output:
+- `data/episodes/drl_episodes.parquet`
+
+Episode generation logic in this step:
+- Trigger when `adj_close >= 1.30 * rolling_min_252(adj_close)`.
+- Rolling minimum defines simulated purchase price/date.
+- Cooldown suppresses overlapping triggers for the same ticker (default: 252 trading rows).
+- Episode starts on trigger day.
+- Episode ends when date reaches `simulated_purchase_date + 365 calendar days`.
+
 ---
 
 ## Features added in engineered dataset
@@ -167,6 +185,24 @@ One close-price feature per input macro asset, for example:
 - `WTI_Close`
 
 These are merged into the equity panel by `date`.
+
+---
+
+## Columns added in episodic dataset
+
+The following columns are added by `src/generate_episodes.py` in `data/episodes/drl_episodes.parquet`:
+
+- `ticker_row`: Row index within each ticker series (internal indexing helper).
+- `simulated_purchase_price`: Rolling 252-day minimum adjusted close used as hypothetical purchase price.
+- `simulated_purchase_pos`: Position (within ticker series) where that rolling minimum occurred.
+- `simulated_purchase_date`: Date of the rolling minimum price.
+- `trigger_candidate`: Boolean flag before cooldown (`adj_close` is at least 30% above simulated purchase price).
+- `valid_trigger`: Boolean flag after cooldown filtering; only these rows start episodes.
+- `episode_id`: Unique identifier in format `{ticker}_{simulated_purchase_date}`.
+- `trigger_date`: Date when the valid trigger fired (episode start).
+- `tax_transition_date`: `simulated_purchase_date + 365 days` (LTCG threshold).
+- `holding_period_days`: Calendar days between current row `date` and `simulated_purchase_date`.
+- `unrealized_gains_pct`: `(adj_close / simulated_purchase_price) - 1`.
 
 ---
 
