@@ -31,8 +31,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--start",
-        default="2010-01-01",
-        help="Start date inclusive (default: 2010-01-01)",
+        default="2009-07-01",
+        help="Start date inclusive (default: 2009-07-01)",
     )
     parser.add_argument(
         "--end",
@@ -169,7 +169,7 @@ def main() -> None:
     missing_values = missing_values_report(df)
     gap_summary, gap_details = missing_business_days_reports(df, all_sessions)
 
-    filtered_out = output_dir / "universe_filtered_2010_2026.parquet"
+    filtered_out = output_dir / "universe_filtered_2009h2_2026.parquet"
     missing_values_out = output_dir / "missing_values_by_ticker.csv"
     gaps_summary_out = output_dir / "missing_trading_days_summary.csv"
     gaps_detail_out = output_dir / "missing_trading_days_detail.csv"

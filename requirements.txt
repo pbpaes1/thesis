@@ -2,6 +2,8 @@ yfinance
 pandas
 numpy
 pyarrow
+requests
+beautifulsoup4
 lxml
 matplotlib
 seaborn
@@ -9,3 +11,4 @@ plotly
 ipykernel
 ipywidgets
 exchange_calendars
+pandas-ta
