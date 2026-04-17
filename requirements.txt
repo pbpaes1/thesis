@@ -1,6 +1,7 @@
 yfinance
 pandas
 numpy
+scikit-learn
 pyarrow
 requests
 beautifulsoup4

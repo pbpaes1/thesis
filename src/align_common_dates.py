@@ -46,10 +46,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--universe-start",
-        default="2009-07-01",
+        default="2008-01-01",
         help=(
             "Warm-up start date for universe output. Universe rows are kept from this "
-            "date until the common CSV end date (default: 2009-07-01)."
+            "date until the common CSV end date (default: 2008-01-01)."
         ),
     )
     parser.add_argument(

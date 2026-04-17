@@ -85,7 +85,7 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   └── fetch_data.py       # Data download pipeline
 │   └── check_universe_gaps.py  # Quality checks + date filtering
 │   └── align_common_dates.py   # Date alignment + interpolation for macro files
-│   └── build_features.py       # Technical indicators + macro merge + export
+│   └── build_features.py       # Technical indicators + macro transforms + rolling PCA factors + export
 │   └── generate_episodes.py    # DRL episode generation from engineered features
 ├── requirements.txt
 └── README.md
@@ -135,6 +135,11 @@ python src/build_features.py
 
 Main final output:
 - `data/features/engineered_universe.parquet`
+
+This step now includes a rolling PCA factor extraction over the stock-universe log-return matrix:
+- Builds daily log returns per ticker from adjusted close prices.
+- For each day `t`, fits `StandardScaler` and `PCA(n_components=10)` on the strict historical window `[t-252, t-1]`.
+- Transforms only day `t` to produce `PC1` to `PC10` (no look-ahead).
 
 Final export window defaults to:
 - start: `2010-01-01`
@@ -186,6 +191,17 @@ One close-price feature per input macro asset, for example:
 
 These are merged into the equity panel by `date`.
 
+### Rolling PCA market-structure factors (from stock log-returns)
+
+- `PC1` to `PC10`
+
+Computation details:
+- Universe matrix is built as `date × ticker` from stock `adj_close`.
+- Daily log returns are `ln(P_t / P_{t-1})`.
+- For each day `t`, PCA is fit only on the previous 252 trading days (`t-252` to `t-1`).
+- Day `t` is transformed with that fitted scaler/PCA to generate the ten factor values.
+- Ticker set is complete-data-only for each date-level rolling fit.
+
 ---
 
 ## Columns added in episodic dataset
@@ -222,3 +238,4 @@ The following columns are added by `src/generate_episodes.py` in `data/episodes/
 | `ipykernel`  | Jupyter notebook support             |
 | `exchange_calendars` | Exchange session calendars for quality checks |
 | `pandas-ta`  | Technical analysis indicators        |
+| `scikit-learn` | Rolling PCA and feature scaling (`StandardScaler`, `PCA`) |

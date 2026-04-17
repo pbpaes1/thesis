@@ -31,8 +31,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--start",
-        default="2009-07-01",
-        help="Start date inclusive (default: 2009-07-01)",
+        default="2008-01-01",
+        help="Start date inclusive (default: 2008-01-01)",
     )
     parser.add_argument(
         "--end",
