@@ -78,7 +78,8 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── quality/            # Quality reports + filtered universe (not tracked)
 │   ├── aligned_common_dates/  # Aligned macro + universe files (not tracked)
 │   ├── features/           # Final engineered feature dataset (not tracked)
-│   └── episodes/           # DRL episodic dataset (not tracked)
+│   ├── episodes/           # DRL episodic dataset (not tracked)
+│   └── episode_validation/ # Episode validation report + diagnostics (mostly not tracked)
 ├── notebooks/
 │   └── explore_data.ipynb  # Interactive data exploration
 ├── src/
@@ -87,6 +88,7 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   └── align_common_dates.py   # Date alignment + interpolation for macro files
 │   └── build_features.py       # Technical indicators + macro transforms + rolling PCA factors + export
 │   └── generate_episodes.py    # DRL episode generation from engineered features
+│   └── validate_parquet.py     # Episode-level parquet validation + report generation
 ├── requirements.txt
 └── README.md
 ```
@@ -162,6 +164,33 @@ Episode generation logic in this step:
 - Cooldown suppresses overlapping triggers for the same ticker (default: 252 trading rows).
 - Episode starts on trigger day.
 - Episode ends when date reaches `simulated_purchase_date + 365 calendar days`.
+
+### 6) Validate episodic parquet dataset
+
+```powershell
+python src/validate_parquet.py --input data/episodes/drl_episodes.parquet --output-dir data/episode_validation
+```
+
+Main outputs:
+- `data/episode_validation/parquet_data_dictionary.csv`
+- `data/episode_validation/parquet_column_classification.csv`
+- `data/episode_validation/parquet_validation_report.md`
+
+Additional diagnostic outputs:
+- `duplicate_episode_date_rows.csv`
+- `episode_date_order_issues.csv`
+- `holding_period_issues.csv`
+- `critical_missingness_summary.csv`
+- `trigger_date_issues.csv`
+- `tax_transition_issues.csv`
+- `unrealized_gain_diagnostics.csv`
+- `unrealized_gain_formula_scores.csv`
+
+Validation logic highlights:
+- Profiles schema, date-like columns, and numeric columns.
+- Builds heuristic data dictionary and column usage classification.
+- Checks key episode constraints (duplicate keys, date ordering, holding period consistency, trigger/tax consistency).
+- Validates `unrealized_gains_pct` formula and scaling (fraction vs percentage-points interpretation).
 
 ---
 
