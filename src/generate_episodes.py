@@ -4,6 +4,11 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+RAW_DAYS_TO_TAX_COL = "days_until_tax_transition"
+RAW_UNREALIZED_GAIN_COL = "unrealized_gains_pct"
+NORM_DAYS_TO_TAX_COL = "days_to_tax_transition_norm"
+NORM_UNREALIZED_GAIN_COL = "unrealized_gain_pct_norm"
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
@@ -180,6 +185,7 @@ def slice_episodes(df: pd.DataFrame, triggers: pd.DataFrame) -> pd.DataFrame:
             "trigger_date",
             "tax_transition_date",
             "holding_period_days",
+            "days_until_tax_transition",
             "unrealized_gains_pct",
         ])
 
@@ -211,6 +217,9 @@ def slice_episodes(df: pd.DataFrame, triggers: pd.DataFrame) -> pd.DataFrame:
             ep["holding_period_days"] = (
                 ep["date"] - ep["simulated_purchase_date"]
             ).dt.days
+            ep["days_until_tax_transition"] = (
+                ep["tax_transition_date"] - ep["date"]
+            ).dt.days
             ep["unrealized_gains_pct"] = (
                 ep["adj_close"] / ep["simulated_purchase_price"]
             ) - 1.0
@@ -223,6 +232,7 @@ def slice_episodes(df: pd.DataFrame, triggers: pd.DataFrame) -> pd.DataFrame:
             "trigger_date",
             "tax_transition_date",
             "holding_period_days",
+            "days_until_tax_transition",
             "unrealized_gains_pct",
         ])
 
@@ -240,14 +250,64 @@ def drop_rows_with_nan_features(df: pd.DataFrame) -> pd.DataFrame:
     return cleaned
 
 
-def print_summary(df: pd.DataFrame) -> None:
+def add_normalized_tax_columns(df: pd.DataFrame) -> pd.DataFrame:
+    out = df.copy()
+
+    # Keep raw tax columns unchanged and add normalized versions.
+    out[NORM_DAYS_TO_TAX_COL] = np.minimum(out[RAW_DAYS_TO_TAX_COL], 365) / 365.0
+    out[NORM_UNREALIZED_GAIN_COL] = np.tanh(out[RAW_UNREALIZED_GAIN_COL] / 0.25)
+    return out
+
+
+def validate_tax_normalization(df: pd.DataFrame, tol: float = 1e-9) -> dict[str, str]:
+    checks: dict[str, str] = {}
+
+    raw_days_exists = RAW_DAYS_TO_TAX_COL in df.columns
+    raw_gain_exists = RAW_UNREALIZED_GAIN_COL in df.columns
+    checks["raw_days_until_tax_transition_exists"] = "pass" if raw_days_exists else "fail"
+    checks["raw_unrealized_gains_pct_exists"] = "pass" if raw_gain_exists else "fail"
+
+    if NORM_DAYS_TO_TAX_COL in df.columns:
+        days_min = float(df[NORM_DAYS_TO_TAX_COL].min())
+        days_max = float(df[NORM_DAYS_TO_TAX_COL].max())
+        days_ok = days_min >= 0.0 - tol and days_max <= 1.0 + tol
+        checks["days_to_tax_transition_norm_in_[0,1]"] = (
+            f"{'pass' if days_ok else 'fail'} (min={days_min:.6g}, max={days_max:.6g})"
+        )
+    else:
+        checks["days_to_tax_transition_norm_in_[0,1]"] = "fail (column missing)"
+
+    if NORM_UNREALIZED_GAIN_COL in df.columns:
+        gain_min = float(df[NORM_UNREALIZED_GAIN_COL].min())
+        gain_max = float(df[NORM_UNREALIZED_GAIN_COL].max())
+        gain_ok = gain_min >= -1.0 - tol and gain_max <= 1.0 + tol
+        checks["unrealized_gain_pct_norm_in_[-1,1]"] = (
+            f"{'pass' if gain_ok else 'fail'} (min={gain_min:.6g}, max={gain_max:.6g})"
+        )
+    else:
+        checks["unrealized_gain_pct_norm_in_[-1,1]"] = "fail (column missing)"
+
+    return checks
+
+
+def print_summary(df: pd.DataFrame, checks: dict[str, str]) -> None:
     if df.empty:
         print("No episodes generated.")
-        return
-
-    episode_lengths = df.groupby("episode_id").size()
-    print(f"Total unique episodes: {episode_lengths.shape[0]:,}")
-    print(f"Average episode length (rows): {episode_lengths.mean():.2f}")
+    else:
+        episode_lengths = df.groupby("episode_id").size()
+        print(f"Total unique episodes: {episode_lengths.shape[0]:,}")
+        print(f"Average episode length (rows): {episode_lengths.mean():.2f}")
+    print("")
+    print("v1 normalization summary")
+    print("- Market variables: existing normalization remains unchanged (rolling/z-score normalization is handled upstream in the current feature pipeline).")
+    print("- Tax variables: raw columns are preserved and normalized columns are added with fixed transformations:")
+    print("  - `days_to_tax_transition_norm = min(days_to_tax_transition, 365) / 365`")
+    print("  - `unrealized_gain_pct_norm = tanh(unrealized_gain_pct / 0.25)`")
+    print("- Normalized tax columns were added for modeling use, while raw tax columns were retained for control and later column-selection decisions.")
+    print("")
+    print("Tax normalization checks")
+    for check_name, status in checks.items():
+        print(f"- {check_name}: {status}")
 
 
 def main() -> None:
@@ -270,11 +330,13 @@ def main() -> None:
     triggers = build_trigger_table(df, tax_horizon_days=args.tax_horizon_days)
     episodes = slice_episodes(df, triggers)
     episodes = drop_rows_with_nan_features(episodes)
+    episodes = add_normalized_tax_columns(episodes)
+    checks = validate_tax_normalization(episodes)
 
     episodes.to_parquet(output_path, index=False)
 
     print(f"Saved episodes: {output_path}")
-    print_summary(episodes)
+    print_summary(episodes, checks)
 
 
 if __name__ == "__main__":

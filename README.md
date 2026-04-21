@@ -79,7 +79,8 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── aligned_common_dates/  # Aligned macro + universe files (not tracked)
 │   ├── features/           # Final engineered feature dataset (not tracked)
 │   ├── episodes/           # DRL episodic dataset (not tracked)
-│   └── episode_validation/ # Episode validation report + diagnostics (mostly not tracked)
+│   ├── episode_validation/ # Episode validation report + diagnostics (mostly not tracked)
+│   └── freeze/             # Versioned state-freeze snapshots (v1, v2, ...)
 ├── notebooks/
 │   └── explore_data.ipynb  # Interactive data exploration
 ├── src/
@@ -89,6 +90,7 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   └── build_features.py       # Technical indicators + macro transforms + rolling PCA factors + export
 │   └── generate_episodes.py    # DRL episode generation from engineered features
 │   └── validate_parquet.py     # Episode-level parquet validation + report generation
+│   └── freeze_columns_v1.py    # Conservative v1 state column freeze (allowed vs excluded)
 ├── requirements.txt
 └── README.md
 ```
@@ -164,6 +166,11 @@ Episode generation logic in this step:
 - Cooldown suppresses overlapping triggers for the same ticker (default: 252 trading rows).
 - Episode starts on trigger day.
 - Episode ends when date reaches `simulated_purchase_date + 365 calendar days`.
+- Raw tax columns are preserved: `days_until_tax_transition`, `unrealized_gains_pct`.
+- Normalized tax columns are added:
+  - `days_to_tax_transition_norm = min(days_until_tax_transition, 365) / 365`
+  - `unrealized_gain_pct_norm = tanh(unrealized_gains_pct / 0.25)`
+- Script logs v1 normalization checks to confirm bounds and raw-column presence.
 
 ### 6) Validate episodic parquet dataset
 
@@ -191,6 +198,17 @@ Validation logic highlights:
 - Builds heuristic data dictionary and column usage classification.
 - Checks key episode constraints (duplicate keys, date ordering, holding period consistency, trigger/tax consistency).
 - Validates `unrealized_gains_pct` formula and scaling (fraction vs percentage-points interpretation).
+
+### 7) Freeze state columns (allowed vs excluded)
+
+```powershell
+python src/freeze_columns_v1.py --input data/episodes/drl_episodes.parquet --output-dir data/freeze --version v1
+```
+
+Main outputs:
+- `data/freeze/v1/allowed_state_columns_v1.json`
+- `data/freeze/v1/excluded_columns_v1.json`
+- `data/freeze/v1/state_freeze_v1_summary.md`
 
 ---
 
@@ -247,7 +265,10 @@ The following columns are added by `src/generate_episodes.py` in `data/episodes/
 - `trigger_date`: Date when the valid trigger fired (episode start).
 - `tax_transition_date`: `simulated_purchase_date + 365 days` (LTCG threshold).
 - `holding_period_days`: Calendar days between current row `date` and `simulated_purchase_date`.
+- `days_until_tax_transition`: Calendar days left until `tax_transition_date` (`tax_transition_date - date`).
 - `unrealized_gains_pct`: `(adj_close / simulated_purchase_price) - 1`.
+- `days_to_tax_transition_norm`: Normalized tax-transition horizon, `min(days_until_tax_transition, 365) / 365`.
+- `unrealized_gain_pct_norm`: Normalized unrealized gain, `tanh(unrealized_gains_pct / 0.25)`.
 
 ---
 

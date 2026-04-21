@@ -1,0 +1,82 @@
+{
+  "version": "v1",
+  "source_file": "data\\episodes\\drl_episodes.parquet",
+  "excluded_columns": [
+    {
+      "column_name": "date",
+      "reason": "raw temporal metadata; excluded in v1 for conservative state freeze"
+    },
+    {
+      "column_name": "ticker",
+      "reason": "identifier excluded in v1 to avoid asset-specific memorization; may be encoded later if needed"
+    },
+    {
+      "column_name": "open",
+      "reason": "raw OHLCV excluded in v1; policy uses richer engineered features and tax-aware state variables"
+    },
+    {
+      "column_name": "high",
+      "reason": "raw OHLCV excluded in v1; policy uses richer engineered features and tax-aware state variables"
+    },
+    {
+      "column_name": "low",
+      "reason": "raw OHLCV excluded in v1; policy uses richer engineered features and tax-aware state variables"
+    },
+    {
+      "column_name": "close",
+      "reason": "raw OHLCV excluded in v1; policy uses richer engineered features and tax-aware state variables"
+    },
+    {
+      "column_name": "adj_close",
+      "reason": "raw OHLCV excluded in v1; policy uses richer engineered features and tax-aware state variables"
+    },
+    {
+      "column_name": "volume",
+      "reason": "raw OHLCV excluded in v1; policy uses richer engineered features and tax-aware state variables"
+    },
+    {
+      "column_name": "source",
+      "reason": "raw metadata (universe/source provenance), not direct state input in v1"
+    },
+    {
+      "column_name": "ticker_row",
+      "reason": "simulator/bookkeeping metadata"
+    },
+    {
+      "column_name": "simulated_purchase_price",
+      "reason": "tax/construction variable excluded in v1 to avoid redundant shortcut state"
+    },
+    {
+      "column_name": "simulated_purchase_pos",
+      "reason": "simulator/bookkeeping metadata"
+    },
+    {
+      "column_name": "simulated_purchase_date",
+      "reason": "raw temporal metadata; excluded in v1 for conservative state freeze"
+    },
+    {
+      "column_name": "trigger_candidate",
+      "reason": "leakage risk: episode-construction trigger flag"
+    },
+    {
+      "column_name": "valid_trigger",
+      "reason": "leakage risk: episode-construction trigger flag"
+    },
+    {
+      "column_name": "episode_id",
+      "reason": "identifier"
+    },
+    {
+      "column_name": "trigger_date",
+      "reason": "raw temporal metadata; excluded in v1 for conservative state freeze"
+    },
+    {
+      "column_name": "tax_transition_date",
+      "reason": "raw temporal metadata; excluded in v1 for conservative state freeze"
+    },
+    {
+      "column_name": "holding_period_days",
+      "reason": "tax/construction variable excluded in v1 to avoid redundant shortcut state"
+    }
+  ]
+}
