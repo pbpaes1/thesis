@@ -77,6 +77,14 @@
     {
       "column_name": "holding_period_days",
       "reason": "tax/construction variable excluded in v1 to avoid redundant shortcut state"
+    },
+    {
+      "column_name": "days_until_tax_transition",
+      "reason": "raw tax variable excluded from agent state in v1; use normalized counterpart"
+    },
+    {
+      "column_name": "unrealized_gains_pct",
+      "reason": "raw tax variable excluded from agent state in v1; use normalized counterpart"
     }
   ]
 }

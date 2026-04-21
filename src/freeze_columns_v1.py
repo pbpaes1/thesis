@@ -100,8 +100,6 @@ def is_allowed_state_column(col: str) -> bool:
         return True
 
     if lower in {
-        "unrealized_gains_pct",
-        "days_until_tax_transition",
         "unrealized_gain_pct_norm",
         "days_to_tax_transition_norm",
     }:
@@ -136,6 +134,9 @@ def exclusion_reason(col: str) -> str:
         "holding_period_days",
     }:
         return "tax/construction variable excluded in v1 to avoid redundant shortcut state"
+
+    if lower in {"unrealized_gains_pct", "days_until_tax_transition"}:
+        return "raw tax variable excluded from agent state in v1; use normalized counterpart"
 
     if lower == "source":
         return "raw metadata (universe/source provenance), not direct state input in v1"
@@ -187,10 +188,10 @@ def write_summary(
     lines.append("")
     lines.append("## Rationale (short)")
     lines.append("")
-    lines.append("- Included: technical indicators, macro close series, PCA factors, and core tax-aware state (raw + normalized).")
-    lines.append("- Tax-aware columns in scope: `unrealized_gains_pct`, `days_until_tax_transition`, `unrealized_gain_pct_norm`, `days_to_tax_transition_norm`.")
+    lines.append("- Included: technical indicators, macro close series, PCA factors, and normalized tax-aware state.")
+    lines.append("- Tax-aware columns in scope for agent state: `unrealized_gain_pct_norm`, `days_to_tax_transition_norm`.")
     lines.append("- Normalized tax mappings used upstream: `days_to_tax_transition_norm = min(days_until_tax_transition, 365) / 365`, `unrealized_gain_pct_norm = tanh(unrealized_gains_pct / 0.25)`.")
-    lines.append("- Excluded: OHLCV, identifiers, dates, trigger flags, simulator bookkeeping, source metadata, and `holding_period_days`.")
+    lines.append("- Excluded: OHLCV, identifiers, dates, trigger flags, simulator bookkeeping, source metadata, raw tax columns, and `holding_period_days`.")
     lines.append(f"- This freeze is intentionally conservative and only defines **{version}** state visibility.")
     lines.append("")
     lines.append("## Note")

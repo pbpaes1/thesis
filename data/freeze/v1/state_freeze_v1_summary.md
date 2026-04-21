@@ -104,8 +104,6 @@ Inspection snapshot (name, dtype, examples):
 - `PC8`
 - `PC9`
 - `PC10`
-- `days_until_tax_transition`
-- `unrealized_gains_pct`
 - `days_to_tax_transition_norm`
 - `unrealized_gain_pct_norm`
 
@@ -130,13 +128,15 @@ Inspection snapshot (name, dtype, examples):
 - `trigger_date`: raw temporal metadata; excluded in v1 for conservative state freeze
 - `tax_transition_date`: raw temporal metadata; excluded in v1 for conservative state freeze
 - `holding_period_days`: tax/construction variable excluded in v1 to avoid redundant shortcut state
+- `days_until_tax_transition`: raw tax variable excluded from agent state in v1; use normalized counterpart
+- `unrealized_gains_pct`: raw tax variable excluded from agent state in v1; use normalized counterpart
 
 ## Rationale (short)
 
-- Included: technical indicators, macro close series, PCA factors, and core tax-aware state (raw + normalized).
-- Tax-aware columns in scope: `unrealized_gains_pct`, `days_until_tax_transition`, `unrealized_gain_pct_norm`, `days_to_tax_transition_norm`.
+- Included: technical indicators, macro close series, PCA factors, and normalized tax-aware state.
+- Tax-aware columns in scope for agent state: `unrealized_gain_pct_norm`, `days_to_tax_transition_norm`.
 - Normalized tax mappings used upstream: `days_to_tax_transition_norm = min(days_until_tax_transition, 365) / 365`, `unrealized_gain_pct_norm = tanh(unrealized_gains_pct / 0.25)`.
-- Excluded: OHLCV, identifiers, dates, trigger flags, simulator bookkeeping, source metadata, and `holding_period_days`.
+- Excluded: OHLCV, identifiers, dates, trigger flags, simulator bookkeeping, source metadata, raw tax columns, and `holding_period_days`.
 - This freeze is intentionally conservative and only defines **v1** state visibility.
 
 ## Note
