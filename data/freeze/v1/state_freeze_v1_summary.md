@@ -4,7 +4,7 @@
 
 - Source file: `data\episodes\drl_episodes.parquet`
 - Rows: **973,658**
-- Columns: **55**
+- Columns: **57**
 
 Inspection snapshot (name, dtype, examples):
 
@@ -65,6 +65,8 @@ Inspection snapshot (name, dtype, examples):
 | holding_period_days | int64 | 122 | 125 | 126 |
 | days_until_tax_transition | int64 | 243 | 240 | 239 |
 | unrealized_gains_pct | float64 | 0.5361511126609326 | 0.5528361215258331 | 0.5383755872773519 |
+| days_to_tax_transition_norm | float64 | 0.6657534246575343 | 0.6575342465753424 | 0.6547945205479452 |
+| unrealized_gain_pct_norm | float64 | 0.7903270114834069 | 0.8025272676737958 | 0.7919912098405154 |
 
 ## Allowed state columns (v1)
 
@@ -104,6 +106,8 @@ Inspection snapshot (name, dtype, examples):
 - `PC10`
 - `days_until_tax_transition`
 - `unrealized_gains_pct`
+- `days_to_tax_transition_norm`
+- `unrealized_gain_pct_norm`
 
 ## Excluded columns (v1)
 
@@ -129,10 +133,12 @@ Inspection snapshot (name, dtype, examples):
 
 ## Rationale (short)
 
-- Included: technical indicators, macro close series, PCA factors, and core tax-aware state (`unrealized_gains_pct`, `days_until_tax_transition`).
+- Included: technical indicators, macro close series, PCA factors, and core tax-aware state (raw + normalized).
+- Tax-aware columns in scope: `unrealized_gains_pct`, `days_until_tax_transition`, `unrealized_gain_pct_norm`, `days_to_tax_transition_norm`.
+- Normalized tax mappings used upstream: `days_to_tax_transition_norm = min(days_until_tax_transition, 365) / 365`, `unrealized_gain_pct_norm = tanh(unrealized_gains_pct / 0.25)`.
 - Excluded: OHLCV, identifiers, dates, trigger flags, simulator bookkeeping, source metadata, and `holding_period_days`.
 - This freeze is intentionally conservative and only defines **v1** state visibility.
 
 ## Note
 
-- This is a first-pass state freeze (v1), not a final modeling decision.
+- This is a state freeze snapshot (v1), not a final modeling decision.

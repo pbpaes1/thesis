@@ -99,7 +99,12 @@ def is_allowed_state_column(col: str) -> bool:
     if re.fullmatch(r"PC\d+", col):
         return True
 
-    if lower in {"unrealized_gains_pct", "days_until_tax_transition"}:
+    if lower in {
+        "unrealized_gains_pct",
+        "days_until_tax_transition",
+        "unrealized_gain_pct_norm",
+        "days_to_tax_transition_norm",
+    }:
         return True
 
     return False
@@ -182,7 +187,9 @@ def write_summary(
     lines.append("")
     lines.append("## Rationale (short)")
     lines.append("")
-    lines.append("- Included: technical indicators, macro close series, PCA factors, and core tax-aware state (`unrealized_gains_pct`, `days_until_tax_transition`).")
+    lines.append("- Included: technical indicators, macro close series, PCA factors, and core tax-aware state (raw + normalized).")
+    lines.append("- Tax-aware columns in scope: `unrealized_gains_pct`, `days_until_tax_transition`, `unrealized_gain_pct_norm`, `days_to_tax_transition_norm`.")
+    lines.append("- Normalized tax mappings used upstream: `days_to_tax_transition_norm = min(days_until_tax_transition, 365) / 365`, `unrealized_gain_pct_norm = tanh(unrealized_gains_pct / 0.25)`.")
     lines.append("- Excluded: OHLCV, identifiers, dates, trigger flags, simulator bookkeeping, source metadata, and `holding_period_days`.")
     lines.append(f"- This freeze is intentionally conservative and only defines **{version}** state visibility.")
     lines.append("")

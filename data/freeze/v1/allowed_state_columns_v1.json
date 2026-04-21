@@ -37,6 +37,8 @@
     "PC9",
     "PC10",
     "days_until_tax_transition",
-    "unrealized_gains_pct"
+    "unrealized_gains_pct",
+    "days_to_tax_transition_norm",
+    "unrealized_gain_pct_norm"
   ]
 }
