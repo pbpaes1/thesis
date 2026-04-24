@@ -80,9 +80,12 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── features/           # Final engineered feature dataset (not tracked)
 │   ├── episodes/           # DRL episodic dataset (not tracked)
 │   ├── episode_validation/ # Episode validation report + diagnostics (mostly not tracked)
-│   └── freeze/             # Versioned state-freeze snapshots (v1, v2, ...)
+│   ├── freeze/             # Versioned state-freeze snapshots (v1, v2, ...)
+│   └── tax_profiles/       # Reusable individual tax-profile configs
 ├── notebooks/
 │   └── explore_data.ipynb  # Interactive data exploration
+├── scripts/
+│   └── smoke_test_environment.py  # Manual console smoke runner for environment rollouts
 ├── src/
 │   └── fetch_data.py       # Data download pipeline
 │   └── check_universe_gaps.py  # Quality checks + date filtering
@@ -91,6 +94,10 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   └── generate_episodes.py    # DRL episode generation from engineered features
 │   └── validate_parquet.py     # Episode-level parquet validation + report generation
 │   └── freeze_columns_v1.py    # Conservative v1 state column freeze (allowed vs excluded)
+│   └── environment/
+│       └── tax_aware_env.py    # Tax-aware liquidation environment (agent-ready interface)
+├── tests/
+│   └── test_env_smoke.py   # Smoke/unit checks for traversal, actions, tax accounting
 ├── requirements.txt
 └── README.md
 ```
@@ -210,7 +217,76 @@ Main outputs:
 - `data/freeze/v1/excluded_columns_v1.json`
 - `data/freeze/v1/state_freeze_v1_summary.md`
 
+### 8) Configure reusable individual tax profiles
+
+Tax profiles are versioned and reusable across the same episode parquet:
+
+- `data/tax_profiles/individual_tax_profiles_v1.json`
+- `data/tax_profiles/README.md`
+
+Currently included individual scenarios:
+- `tax_free`
+- `low_income_individual`
+- `mass_affluent_individual`
+- `high_income_individual`
+- `top_bracket_individual`
+
+These are thesis simulation profiles, not a full legal/tax engine.
+
+### 9) Run environment smoke/unit checks
+
+```powershell
+python -m unittest tests.test_env_smoke -v
+```
+
+### 10) Run manual environment smoke runner
+
+```powershell
+python scripts/smoke_test_environment.py
+```
+
+The manual runner prints:
+- short-term and long-term scenario blocks
+- fixed action trajectories
+- per-step bookkeeping and tax-accounting columns for inspection
+
 ---
+
+## Tax-aware environment
+
+Environment implementation:
+- `src/environment/tax_aware_env.py`
+
+Core behavior currently implemented:
+- episode-level parquet loading and per-episode chronological traversal
+- observation extraction from externally supplied frozen `state_columns`
+- discrete actions as sell fractions of original position: `(0.0, 0.25, 0.50, 0.75, 1.0)`
+- oversell prevention and sold/remaining fraction bookkeeping
+- sale-level realized pre-tax and after-tax PnL accounting
+- short-term vs long-term regime classification using episode dates
+- profile-driven individual tax rates (`short_term_rate`, `long_term_rate`, optional `niit_rate`)
+
+Agent-ready interface (plain Python class, Gym-like return contract):
+- `reset(...) -> (obs, info)`
+- `step(action) -> (obs, reward, done, truncated, info)`
+
+Current terminal logic:
+- `done=True` when final episode row is reached and/or remaining fraction is `0.0`
+- `truncated=False` (placeholder; no artificial cutoff yet)
+
+Reward status:
+- reward remains a placeholder (`0.0`) pending later reward-design step.
+
+Reset `info` includes at least:
+- `episode_id`, `current_row_ptr`, `date`
+- `sold_fraction`, `remaining_fraction`
+- `cum_realized_pre_tax_pnl`, `cum_realized_after_tax_pnl`
+- `tax_profile_name`
+
+Step `info` includes at least:
+- action bookkeeping (`action`, requested/executed fraction, sold/remaining)
+- tax/accounting fields (`tax_regime`, `applicable_tax_rate`, sale increments, cumulative totals)
+- episode pointers (`current_row_ptr`, `sale_row_ptr`) and `date`
 
 ## Features added in engineered dataset
 

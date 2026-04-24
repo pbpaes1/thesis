@@ -1,0 +1,39 @@
+{
+  "profiles": [
+    {
+      "profile_name": "tax_free",
+      "short_term_rate": 0.0,
+      "long_term_rate": 0.0,
+      "niit_rate": 0.0,
+      "apply_niit": false
+    },
+    {
+      "profile_name": "low_income_individual",
+      "short_term_rate": 0.12,
+      "long_term_rate": 0.0,
+      "niit_rate": 0.0,
+      "apply_niit": false
+    },
+    {
+      "profile_name": "mass_affluent_individual",
+      "short_term_rate": 0.24,
+      "long_term_rate": 0.15,
+      "niit_rate": 0.0,
+      "apply_niit": false
+    },
+    {
+      "profile_name": "high_income_individual",
+      "short_term_rate": 0.35,
+      "long_term_rate": 0.15,
+      "niit_rate": 0.038,
+      "apply_niit": true
+    },
+    {
+      "profile_name": "top_bracket_individual",
+      "short_term_rate": 0.37,
+      "long_term_rate": 0.20,
+      "niit_rate": 0.038,
+      "apply_niit": true
+    }
+  ]
+}
