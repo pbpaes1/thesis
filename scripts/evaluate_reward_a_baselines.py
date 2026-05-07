@@ -1,0 +1,877 @@
+"""Evaluate Reward A trained DQN and simple baseline liquidation policies."""
+
+from __future__ import annotations
+
+import json
+import math
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+try:
+    import yaml
+except ImportError as exc:  # pragma: no cover - exercised only when missing.
+    raise ImportError(
+        "PyYAML is required to run scripts/evaluate_reward_a_baselines.py. "
+        "Install it with: pip install pyyaml"
+    ) from exc
+
+try:
+    import torch
+    import torch.nn as nn
+except ImportError as exc:  # pragma: no cover - exercised only when missing.
+    raise ImportError(
+        "PyTorch is required to run scripts/evaluate_reward_a_baselines.py. "
+        "Install torch before running the Reward A baseline evaluator."
+    ) from exc
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from src.environment.tax_aware_env import TaxAwareEnv  # noqa: E402
+
+
+CONFIG_PATH = PROJECT_ROOT / "configs" / "train_reward_a_v1.yaml"
+REWARD_ASSERT_TOL = 1e-8
+MAX_VALIDATION_EPISODES = None
+MAX_TEST_EPISODES = None
+
+POLICY_NAMES = [
+    "trained_dqn_greedy",
+    "hold_to_terminal",
+    "sell_immediately",
+    "sell_half_then_hold",
+    "sell_quarters_over_time",
+    "random_policy",
+]
+
+STEP_ROLLOUT_COLUMNS = [
+    "split",
+    "policy_name",
+    "episode_id",
+    "step_in_episode",
+    "date",
+    "action_idx",
+    "action_fraction_requested",
+    "action_fraction_executed",
+    "reward",
+    "reward_A",
+    "after_tax_total_value",
+    "previous_after_tax_total_value",
+    "realized_after_tax_increment",
+    "cum_realized_after_tax_pnl",
+    "after_tax_liquidation_value_remaining",
+    "sold_fraction",
+    "remaining_fraction",
+    "tax_regime",
+    "after_tax_liquidation_tax_regime",
+    "terminal_liquidation_executed",
+    "done",
+]
+
+EPISODE_METRIC_COLUMNS = [
+    "split",
+    "policy_name",
+    "episode_id",
+    "episode_total_reward",
+    "episode_initial_after_tax_total_value",
+    "episode_final_after_tax_total_value",
+    "episode_realized_after_tax_pnl",
+    "episode_steps",
+    "episode_terminal_liquidation_executed",
+    "episode_final_remaining_fraction",
+    "episode_final_sold_fraction",
+    "episode_full_liquidation",
+    "episode_cut_occurred",
+    "first_cut_step",
+    "first_cut_date",
+    "first_cut_fraction_executed",
+]
+
+SUMMARY_COLUMNS = [
+    "split",
+    "policy_name",
+    "num_episodes",
+    "mean_episode_total_reward",
+    "median_episode_total_reward",
+    "std_episode_total_reward",
+    "min_episode_total_reward",
+    "max_episode_total_reward",
+    "p05_episode_total_reward",
+    "p95_episode_total_reward",
+    "mean_final_after_tax_total_value",
+    "median_final_after_tax_total_value",
+    "mean_realized_after_tax_pnl",
+    "median_realized_after_tax_pnl",
+    "mean_episode_steps",
+    "median_episode_steps",
+    "terminal_liquidation_frequency",
+    "full_liquidation_frequency",
+    "cut_frequency",
+    "mean_first_cut_step",
+    "median_first_cut_step",
+    "mean_first_cut_fraction_executed",
+]
+
+SUMMARY_CONTEXT: dict[str, Any] = {}
+
+
+def _require(config: dict, path: str) -> Any:
+    current: Any = config
+    for key in path.split("."):
+        if not isinstance(current, dict) or key not in current:
+            raise KeyError(f"Missing required config value: {path}")
+        current = current[key]
+    return current
+
+
+def _relative_project_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
+
+
+def _resolve_device(device_config: str) -> torch.device:
+    if device_config == "auto":
+        return torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device(device_config)
+    if device.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError("Config requested CUDA, but CUDA is not available.")
+    return device
+
+
+def _validate_reward_a_config(config: dict) -> None:
+    reward_version = str(_require(config, "reward.version"))
+    expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
+    if reward_version != "A_after_tax_total_value_change":
+        raise ValueError(
+            "This evaluator is frozen to Reward A, expected "
+            "'A_after_tax_total_value_change', got "
+            f"{reward_version!r}."
+        )
+    if expected_reward_version != reward_version:
+        raise ValueError(
+            "Config reward.version and reward.expected_info_reward_version "
+            f"must match, got {reward_version!r} and {expected_reward_version!r}."
+        )
+    if not bool(_require(config, "reward.use_environment_reward")):
+        raise ValueError("Reward A evaluation requires use_environment_reward=true.")
+
+    excluded_flags = [
+        "reward.use_drawdown_penalty",
+        "reward.use_cooldown_penalty",
+        "reward.use_explicit_tax_saving_bonus",
+        "reward.use_reward_clipping",
+        "reward.use_reward_normalization",
+    ]
+    enabled_flags = [flag for flag in excluded_flags if bool(_require(config, flag))]
+    if enabled_flags:
+        raise ValueError(
+            "Reward A baseline evaluation must not enable deferred reward options: "
+            f"{enabled_flags}"
+        )
+
+
+def load_yaml(path: Path) -> dict:
+    with path.open("r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError(f"YAML file must contain a mapping at top level: {path}")
+    return payload
+
+
+def save_yaml(payload: dict, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(payload, handle, sort_keys=False)
+
+
+def load_state_columns(schema_path: Path) -> list[str]:
+    with schema_path.open("r", encoding="utf-8") as handle:
+        payload = json.load(handle)
+
+    columns = payload.get("allowed_state_columns") if isinstance(payload, dict) else payload
+    if not isinstance(columns, list) or not all(
+        isinstance(column, str) for column in columns
+    ):
+        raise ValueError(
+            "State schema must contain a list of strings under "
+            "'allowed_state_columns'."
+        )
+    if not columns:
+        raise ValueError(f"State schema has no allowed state columns: {schema_path}")
+    return columns
+
+
+def resolve_project_path(path_value: str | Path) -> Path:
+    path = Path(path_value)
+    if path.is_absolute():
+        return path
+    return PROJECT_ROOT / path
+
+
+def make_env(config: dict) -> TaxAwareEnv:
+    env_config = _require(config, "environment")
+    parquet_path = resolve_project_path(_require(env_config, "parquet_path"))
+    schema_path = resolve_project_path(_require(env_config, "state_schema_path"))
+    state_columns = load_state_columns(schema_path)
+    action_fractions = _require(config, "action_space.action_fractions")
+    tax_config = _require(config, "tax_profile")
+    seed = int(_require(config, "training.seed"))
+
+    return TaxAwareEnv(
+        parquet_path=parquet_path,
+        state_columns=state_columns,
+        action_fractions=action_fractions,
+        tax_config=tax_config,
+        seed=seed,
+    )
+
+
+def approx_equal(a: float, b: float, tol: float = REWARD_ASSERT_TOL) -> bool:
+    return math.isclose(float(a), float(b), rel_tol=tol, abs_tol=tol)
+
+
+def assert_reward_info(
+    reward: float,
+    info: dict,
+    expected_reward_version: str,
+) -> None:
+    assert info["reward_version"] == expected_reward_version, (
+        f"Unexpected reward_version={info['reward_version']!r}; "
+        f"expected {expected_reward_version!r}."
+    )
+    assert approx_equal(reward, info["reward"]), "reward != info['reward']"
+    assert approx_equal(reward, info["reward_A"]), "reward != info['reward_A']"
+    assert approx_equal(
+        reward,
+        info["after_tax_total_value"] - info["previous_after_tax_total_value"],
+    ), "Reward A identity failed."
+    assert approx_equal(
+        info["after_tax_total_value"],
+        info["cum_realized_after_tax_pnl"]
+        + info["after_tax_liquidation_value_remaining"],
+    ), "After-tax total value decomposition failed."
+    assert np.isfinite(reward), "Reward is not finite."
+
+
+def action_index_for_fraction(env: TaxAwareEnv, target_fraction: float) -> int:
+    for idx, action_fraction in enumerate(env.action_fractions):
+        if approx_equal(float(action_fraction), float(target_fraction)):
+            return idx
+    raise ValueError(
+        f"Action fraction {target_fraction} is not present in "
+        f"env.action_fractions={env.action_fractions}."
+    )
+
+
+def load_episode_splits(path: Path) -> dict[str, list[str]]:
+    if not path.exists():
+        raise FileNotFoundError(f"Episode split file not found: {path}")
+
+    splits_df = pd.read_csv(path)
+    required_columns = {"episode_id", "split"}
+    missing_columns = required_columns - set(splits_df.columns)
+    if missing_columns:
+        raise ValueError(
+            f"Episode split file is missing required columns: {sorted(missing_columns)}"
+        )
+    if splits_df["episode_id"].isna().any() or splits_df["split"].isna().any():
+        raise ValueError("Episode split file contains missing episode_id or split.")
+
+    splits_df = splits_df.copy()
+    splits_df["episode_id"] = splits_df["episode_id"].astype(str)
+    splits_df["split"] = splits_df["split"].astype(str)
+
+    splits = {
+        split_name: group["episode_id"].tolist()
+        for split_name, group in splits_df.groupby("split", sort=False)
+    }
+    if not splits.get("validation"):
+        raise ValueError("Validation split is empty in episode_splits.csv.")
+    if not splits.get("test"):
+        raise ValueError("Test split is empty in episode_splits.csv.")
+    return splits
+
+
+class QNetwork(nn.Module):
+    def __init__(
+        self,
+        obs_dim: int,
+        num_actions: int,
+        hidden_layers: list[int],
+        activation: str,
+    ) -> None:
+        super().__init__()
+        if activation != "relu":
+            raise ValueError(f"Unsupported activation {activation!r}; expected 'relu'.")
+
+        layers: list[nn.Module] = []
+        input_dim = int(obs_dim)
+        for hidden_dim in hidden_layers:
+            layers.append(nn.Linear(input_dim, int(hidden_dim)))
+            layers.append(nn.ReLU())
+            input_dim = int(hidden_dim)
+        layers.append(nn.Linear(input_dim, int(num_actions)))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
+
+def load_trained_q_network(
+    config: dict,
+    model_path: Path,
+    obs_dim: int,
+    num_actions: int,
+    device: torch.device,
+) -> QNetwork:
+    if not model_path.exists():
+        raise FileNotFoundError(f"Trained model artifact not found: {model_path}")
+
+    hidden_layers = list(_require(config, "algorithm.policy_network.hidden_layers"))
+    activation = str(_require(config, "algorithm.policy_network.activation"))
+    expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
+    q_net = QNetwork(obs_dim, num_actions, hidden_layers, activation).to(device)
+
+    try:
+        checkpoint = torch.load(model_path, map_location=device, weights_only=False)
+    except TypeError:  # pragma: no cover - for older torch versions.
+        checkpoint = torch.load(model_path, map_location=device)
+
+    if not isinstance(checkpoint, dict):
+        raise ValueError(f"Expected model artifact to contain a dict: {model_path}")
+    required_keys = {"model_state_dict", "obs_dim", "num_actions", "reward_version"}
+    missing_keys = required_keys - set(checkpoint.keys())
+    if missing_keys:
+        raise ValueError(
+            f"Model artifact is missing required keys: {sorted(missing_keys)}"
+        )
+
+    assert checkpoint["reward_version"] == expected_reward_version, (
+        f"Saved reward_version={checkpoint['reward_version']!r}; "
+        f"expected {expected_reward_version!r}."
+    )
+    assert int(checkpoint["obs_dim"]) == int(obs_dim), (
+        f"Saved obs_dim={checkpoint['obs_dim']}; current obs_dim={obs_dim}."
+    )
+    assert int(checkpoint["num_actions"]) == int(num_actions), (
+        "Saved num_actions="
+        f"{checkpoint['num_actions']}; current num_actions={num_actions}."
+    )
+
+    q_net.load_state_dict(checkpoint["model_state_dict"])
+    q_net.eval()
+
+    with torch.no_grad():
+        dummy_obs = torch.zeros((1, obs_dim), dtype=torch.float32, device=device)
+        dummy_q_values = q_net(dummy_obs)
+        assert dummy_q_values.shape == (1, num_actions), (
+            f"Expected dummy Q-value shape (1, {num_actions}), got "
+            f"{tuple(dummy_q_values.shape)}."
+        )
+        assert torch.isfinite(dummy_q_values).all(), (
+            "Loaded Q-network produced NaN or infinite values for dummy input."
+        )
+
+    return q_net
+
+
+def select_dqn_greedy_action(
+    q_net: QNetwork,
+    obs: np.ndarray,
+    num_actions: int,
+    device: torch.device,
+) -> int:
+    with torch.no_grad():
+        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
+        q_values = q_net(obs_tensor)
+        if q_values.shape != (1, num_actions):
+            raise AssertionError(
+                f"QNetwork output shape {tuple(q_values.shape)} does not match "
+                f"(1, {num_actions})."
+            )
+        if not torch.isfinite(q_values).all():
+            raise AssertionError("Q-values contain NaN or infinite values.")
+        return int(torch.argmax(q_values, dim=1).item())
+
+
+def baseline_action_fraction(
+    policy_name: str,
+    step_idx: int,
+    rng: np.random.Generator,
+    env: TaxAwareEnv,
+) -> float:
+    if policy_name == "hold_to_terminal":
+        return 0.0
+    if policy_name == "sell_immediately":
+        return 1.0 if step_idx == 0 else 0.0
+    if policy_name == "sell_half_then_hold":
+        return 0.5 if step_idx == 0 else 0.0
+    if policy_name == "sell_quarters_over_time":
+        return 0.25
+    if policy_name == "random_policy":
+        return float(rng.choice(env.action_fractions))
+    raise ValueError(
+        f"Policy {policy_name!r} does not use baseline_action_fraction()."
+    )
+
+
+def evaluate_policy_on_episodes(
+    env: TaxAwareEnv,
+    policy_name: str,
+    episode_ids: list[str],
+    split_name: str,
+    expected_reward_version: str,
+    rng: np.random.Generator,
+    q_net: QNetwork | None,
+    device: torch.device,
+) -> tuple[list[dict], list[dict]]:
+    if policy_name not in POLICY_NAMES:
+        raise ValueError(f"Unknown policy_name={policy_name!r}.")
+    if policy_name == "trained_dqn_greedy" and q_net is None:
+        raise ValueError("trained_dqn_greedy requires a loaded QNetwork.")
+
+    obs_dim = len(env.state_columns)
+    num_actions = len(env.action_fractions)
+    episode_metric_rows: list[dict[str, Any]] = []
+    step_rollout_rows: list[dict[str, Any]] = []
+
+    for episode_id in episode_ids:
+        obs, reset_info = env.reset(episode_id=episode_id)
+        if obs.shape != (obs_dim,):
+            raise AssertionError(
+                f"Observation shape {obs.shape} does not match expected {(obs_dim,)}."
+            )
+        if not np.isfinite(obs).all():
+            raise AssertionError(
+                f"Initial observation contains NaN or infinite values for "
+                f"episode_id={episode_id}."
+            )
+
+        episode_initial_after_tax_total_value = float(
+            reset_info["after_tax_total_value"]
+        )
+        if not np.isfinite(episode_initial_after_tax_total_value):
+            raise AssertionError(
+                f"Initial after-tax total value is not finite for episode_id={episode_id}."
+            )
+
+        done = False
+        step_in_episode = 0
+        episode_total_reward = 0.0
+        if env._current_episode_df is None:
+            raise RuntimeError("Environment did not set _current_episode_df on reset.")
+        max_steps = len(env._current_episode_df) + 5
+        last_info: dict[str, Any] | None = None
+        first_cut_step: int | None = None
+        first_cut_date: Any | None = None
+        first_cut_fraction_executed: float | None = None
+        episode_cut_occurred = False
+
+        while not done:
+            if step_in_episode > max_steps:
+                raise RuntimeError(
+                    f"Safety cap exceeded for split={split_name} "
+                    f"policy={policy_name} episode_id={episode_id}: "
+                    f"max_steps={max_steps}."
+                )
+
+            if policy_name == "trained_dqn_greedy":
+                action_idx = select_dqn_greedy_action(
+                    q_net=q_net,
+                    obs=obs,
+                    num_actions=num_actions,
+                    device=device,
+                )
+            else:
+                action_fraction = baseline_action_fraction(
+                    policy_name=policy_name,
+                    step_idx=step_in_episode,
+                    rng=rng,
+                    env=env,
+                )
+                action_idx = action_index_for_fraction(env, action_fraction)
+
+            next_obs, reward, done, truncated, info = env.step(action_idx)
+            if truncated is not False:
+                raise AssertionError("TaxAwareEnv returned truncated=True.")
+            assert_reward_info(reward, info, expected_reward_version)
+            if not np.isfinite(reward):
+                raise AssertionError(
+                    f"Reward is NaN or infinite for split={split_name} "
+                    f"policy={policy_name} episode_id={episode_id} "
+                    f"step={step_in_episode}."
+                )
+            if next_obs.shape != (obs_dim,):
+                raise AssertionError(
+                    f"Next observation shape {next_obs.shape} does not match "
+                    f"expected {(obs_dim,)}."
+                )
+            if not np.isfinite(next_obs).all():
+                raise AssertionError(
+                    f"Next observation contains NaN or infinite values for "
+                    f"split={split_name} policy={policy_name} "
+                    f"episode_id={episode_id} step={step_in_episode}."
+                )
+
+            action_fraction_executed = float(info["action_fraction_executed"])
+            if action_fraction_executed > 0.0 and not episode_cut_occurred:
+                episode_cut_occurred = True
+                first_cut_step = step_in_episode
+                first_cut_date = info.get("date")
+                first_cut_fraction_executed = action_fraction_executed
+
+            step_rollout_rows.append(
+                {
+                    "split": split_name,
+                    "policy_name": policy_name,
+                    "episode_id": episode_id,
+                    "step_in_episode": step_in_episode,
+                    "date": info.get("date"),
+                    "action_idx": int(action_idx),
+                    "action_fraction_requested": info.get(
+                        "action_fraction_requested"
+                    ),
+                    "action_fraction_executed": action_fraction_executed,
+                    "reward": float(reward),
+                    "reward_A": info.get("reward_A"),
+                    "after_tax_total_value": info.get("after_tax_total_value"),
+                    "previous_after_tax_total_value": info.get(
+                        "previous_after_tax_total_value"
+                    ),
+                    "realized_after_tax_increment": info.get(
+                        "realized_after_tax_increment"
+                    ),
+                    "cum_realized_after_tax_pnl": info.get(
+                        "cum_realized_after_tax_pnl"
+                    ),
+                    "after_tax_liquidation_value_remaining": info.get(
+                        "after_tax_liquidation_value_remaining"
+                    ),
+                    "sold_fraction": info.get("sold_fraction"),
+                    "remaining_fraction": info.get("remaining_fraction"),
+                    "tax_regime": info.get("tax_regime"),
+                    "after_tax_liquidation_tax_regime": info.get(
+                        "after_tax_liquidation_tax_regime"
+                    ),
+                    "terminal_liquidation_executed": info.get(
+                        "terminal_liquidation_executed"
+                    ),
+                    "done": bool(done),
+                }
+            )
+
+            episode_total_reward += float(reward)
+            last_info = info
+            obs = next_obs
+            step_in_episode += 1
+
+        if last_info is None:
+            raise RuntimeError(
+                f"No steps were executed for split={split_name} "
+                f"policy={policy_name} episode_id={episode_id}."
+            )
+
+        episode_final_after_tax_total_value = float(
+            last_info["after_tax_total_value"]
+        )
+        assert approx_equal(
+            episode_total_reward,
+            episode_final_after_tax_total_value
+            - episode_initial_after_tax_total_value,
+        ), (
+            "Episode reward telescoping failed for "
+            f"split={split_name} policy={policy_name} episode_id={episode_id}."
+        )
+
+        episode_final_remaining_fraction = float(last_info["remaining_fraction"])
+        episode_final_sold_fraction = float(last_info["sold_fraction"])
+        episode_metric_rows.append(
+            {
+                "split": split_name,
+                "policy_name": policy_name,
+                "episode_id": episode_id,
+                "episode_total_reward": float(episode_total_reward),
+                "episode_initial_after_tax_total_value": (
+                    episode_initial_after_tax_total_value
+                ),
+                "episode_final_after_tax_total_value": (
+                    episode_final_after_tax_total_value
+                ),
+                "episode_realized_after_tax_pnl": float(
+                    last_info["cum_realized_after_tax_pnl"]
+                ),
+                "episode_steps": int(step_in_episode),
+                "episode_terminal_liquidation_executed": bool(
+                    last_info["terminal_liquidation_executed"]
+                ),
+                "episode_final_remaining_fraction": episode_final_remaining_fraction,
+                "episode_final_sold_fraction": episode_final_sold_fraction,
+                "episode_full_liquidation": bool(
+                    episode_final_remaining_fraction == 0.0
+                ),
+                "episode_cut_occurred": bool(episode_cut_occurred),
+                "first_cut_step": first_cut_step,
+                "first_cut_date": first_cut_date,
+                "first_cut_fraction_executed": first_cut_fraction_executed,
+            }
+        )
+
+    return episode_metric_rows, step_rollout_rows
+
+
+def summarize_by_policy(episode_metrics_df: pd.DataFrame) -> pd.DataFrame:
+    if episode_metrics_df.empty:
+        return pd.DataFrame(columns=SUMMARY_COLUMNS)
+
+    metrics = episode_metrics_df.copy()
+    metrics["first_cut_step"] = pd.to_numeric(
+        metrics["first_cut_step"],
+        errors="coerce",
+    )
+    metrics["first_cut_fraction_executed"] = pd.to_numeric(
+        metrics["first_cut_fraction_executed"],
+        errors="coerce",
+    )
+
+    summary_df = (
+        metrics.groupby(["split", "policy_name"], sort=True)
+        .agg(
+            num_episodes=("episode_total_reward", "size"),
+            mean_episode_total_reward=("episode_total_reward", "mean"),
+            median_episode_total_reward=("episode_total_reward", "median"),
+            std_episode_total_reward=("episode_total_reward", "std"),
+            min_episode_total_reward=("episode_total_reward", "min"),
+            max_episode_total_reward=("episode_total_reward", "max"),
+            p05_episode_total_reward=(
+                "episode_total_reward",
+                lambda series: series.quantile(0.05),
+            ),
+            p95_episode_total_reward=(
+                "episode_total_reward",
+                lambda series: series.quantile(0.95),
+            ),
+            mean_final_after_tax_total_value=(
+                "episode_final_after_tax_total_value",
+                "mean",
+            ),
+            median_final_after_tax_total_value=(
+                "episode_final_after_tax_total_value",
+                "median",
+            ),
+            mean_realized_after_tax_pnl=("episode_realized_after_tax_pnl", "mean"),
+            median_realized_after_tax_pnl=(
+                "episode_realized_after_tax_pnl",
+                "median",
+            ),
+            mean_episode_steps=("episode_steps", "mean"),
+            median_episode_steps=("episode_steps", "median"),
+            terminal_liquidation_frequency=(
+                "episode_terminal_liquidation_executed",
+                "mean",
+            ),
+            full_liquidation_frequency=("episode_full_liquidation", "mean"),
+            cut_frequency=("episode_cut_occurred", "mean"),
+            mean_first_cut_step=("first_cut_step", "mean"),
+            median_first_cut_step=("first_cut_step", "median"),
+            mean_first_cut_fraction_executed=(
+                "first_cut_fraction_executed",
+                "mean",
+            ),
+        )
+        .reset_index()
+    )
+    return summary_df[SUMMARY_COLUMNS]
+
+
+def build_summary_text(
+    summary_df: pd.DataFrame,
+    episode_metrics_df: pd.DataFrame,
+) -> str:
+    def _best_policy(split_name: str) -> str:
+        split_summary = summary_df[summary_df["split"] == split_name]
+        if split_summary.empty:
+            return "None"
+        best_idx = split_summary["mean_episode_total_reward"].idxmax()
+        return str(split_summary.loc[best_idx, "policy_name"])
+
+    num_validation_episodes = int(
+        episode_metrics_df.loc[
+            episode_metrics_df["split"] == "validation",
+            "episode_id",
+        ].nunique()
+    )
+    num_test_episodes = int(
+        episode_metrics_df.loc[
+            episode_metrics_df["split"] == "test",
+            "episode_id",
+        ].nunique()
+    )
+    policies_evaluated = SUMMARY_CONTEXT.get("policies_evaluated", POLICY_NAMES)
+    summary_table = summary_df.to_string(index=False)
+
+    lines = [
+        "Reward A Baseline Evaluation Summary",
+        f"reward_version: {SUMMARY_CONTEXT.get('reward_version', 'unknown')}",
+        f"model_path: {SUMMARY_CONTEXT.get('model_path', 'unknown')}",
+        f"episode_splits_path: {SUMMARY_CONTEXT.get('episode_splits_path', 'unknown')}",
+        f"num_validation_episodes: {num_validation_episodes}",
+        f"num_test_episodes: {num_test_episodes}",
+        "policies_evaluated: " + ", ".join(str(policy) for policy in policies_evaluated),
+        "best_validation_policy_by_mean_reward: " + _best_policy("validation"),
+        "best_test_policy_by_mean_reward: " + _best_policy("test"),
+        "summary_table:",
+        summary_table,
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _apply_episode_cap(
+    episode_ids: list[str],
+    cap: int | None,
+    split_name: str,
+) -> list[str]:
+    if cap is None:
+        return episode_ids
+    if int(cap) <= 0:
+        raise ValueError(f"MAX_{split_name.upper()}_EPISODES must be positive or None.")
+    return episode_ids[: int(cap)]
+
+
+def main() -> None:
+    print("Reward A Baseline Evaluation")
+
+    config = load_yaml(CONFIG_PATH)
+    _validate_reward_a_config(config)
+    expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
+    output_dir = resolve_project_path(_require(config, "logging.output_dir"))
+    baselines_dir = output_dir / "baselines"
+    model_path = output_dir / "final_model.pt"
+    episode_splits_path = output_dir / "episode_splits.csv"
+
+    env = make_env(config)
+    state_columns = load_state_columns(
+        resolve_project_path(_require(config, "environment.state_schema_path"))
+    )
+    obs_dim = len(state_columns)
+    num_actions = len(env.action_fractions)
+    for action_fraction in _require(config, "action_space.action_fractions"):
+        action_index_for_fraction(env, float(action_fraction))
+
+    device = _resolve_device(str(_require(config, "training.device")))
+    q_net = load_trained_q_network(
+        config=config,
+        model_path=model_path,
+        obs_dim=obs_dim,
+        num_actions=num_actions,
+        device=device,
+    )
+    print(f"Loaded trained model: {_relative_project_path(model_path)}")
+
+    splits = load_episode_splits(episode_splits_path)
+    print(f"Loaded episode splits: {_relative_project_path(episode_splits_path)}")
+
+    validation_ids = _apply_episode_cap(
+        splits["validation"],
+        MAX_VALIDATION_EPISODES,
+        "validation",
+    )
+    test_ids = _apply_episode_cap(splits["test"], MAX_TEST_EPISODES, "test")
+    if not validation_ids:
+        raise ValueError("No validation episodes selected for baseline evaluation.")
+    if not test_ids:
+        raise ValueError("No test episodes selected for baseline evaluation.")
+
+    baselines_dir.mkdir(parents=True, exist_ok=True)
+    save_yaml(
+        {
+            "source_config_path": _relative_project_path(CONFIG_PATH),
+            "model_path": _relative_project_path(model_path),
+            "episode_splits_path": _relative_project_path(episode_splits_path),
+            "output_dir": _relative_project_path(baselines_dir),
+            "reward_version": expected_reward_version,
+            "max_validation_episodes": MAX_VALIDATION_EPISODES,
+            "max_test_episodes": MAX_TEST_EPISODES,
+            "policies_evaluated": POLICY_NAMES,
+            "training_config": config,
+        },
+        baselines_dir / "baseline_config_used.yaml",
+    )
+
+    rng = np.random.default_rng(42)
+    episode_metric_rows: list[dict[str, Any]] = []
+    step_rollout_rows: list[dict[str, Any]] = []
+
+    for policy_name in POLICY_NAMES:
+        for split_name, episode_ids in (
+            ("validation", validation_ids),
+            ("test", test_ids),
+        ):
+            print(
+                f"Evaluating split={split_name} "
+                f"policy={policy_name} episodes={len(episode_ids)}"
+            )
+            policy_episode_rows, policy_step_rows = evaluate_policy_on_episodes(
+                env=env,
+                policy_name=policy_name,
+                episode_ids=episode_ids,
+                split_name=split_name,
+                expected_reward_version=expected_reward_version,
+                rng=rng,
+                q_net=q_net,
+                device=device,
+            )
+            episode_metric_rows.extend(policy_episode_rows)
+            step_rollout_rows.extend(policy_step_rows)
+
+    episode_metrics_df = pd.DataFrame(
+        episode_metric_rows,
+        columns=EPISODE_METRIC_COLUMNS,
+    )
+    step_rollouts_df = pd.DataFrame(
+        step_rollout_rows,
+        columns=STEP_ROLLOUT_COLUMNS,
+    )
+    summary_df = summarize_by_policy(episode_metrics_df)
+
+    episode_metrics_df.to_csv(
+        baselines_dir / "baseline_episode_metrics.csv",
+        index=False,
+    )
+    step_rollouts_df.to_csv(
+        baselines_dir / "baseline_step_rollouts.csv",
+        index=False,
+    )
+    summary_df.to_csv(
+        baselines_dir / "baseline_summary_by_policy.csv",
+        index=False,
+    )
+
+    SUMMARY_CONTEXT.update(
+        {
+            "reward_version": expected_reward_version,
+            "model_path": _relative_project_path(model_path),
+            "episode_splits_path": _relative_project_path(episode_splits_path),
+            "policies_evaluated": POLICY_NAMES,
+        }
+    )
+    summary_text = build_summary_text(summary_df, episode_metrics_df)
+    with (baselines_dir / "baseline_evaluation_summary.txt").open(
+        "w",
+        encoding="utf-8",
+    ) as handle:
+        handle.write(summary_text)
+
+    print("REWARD A BASELINE EVALUATION COMPLETE")
+
+
+if __name__ == "__main__":
+    main()

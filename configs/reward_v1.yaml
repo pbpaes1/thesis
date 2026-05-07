@@ -1,0 +1,16 @@
+reward:
+  version: A_after_tax_total_value_change
+  status: frozen_for_first_training
+  formula: after_tax_total_value_change
+  use_drawdown_penalty: false
+  use_cooldown_penalty: false
+  use_explicit_tax_saving_bonus: false
+  use_reward_clipping: false
+  use_reward_normalization: false
+  terminal_liquidation:
+    enabled: true
+    tax_regime: long_term
+  validation:
+    sanity_checks_script: scripts/reward_sanity_checks.py
+    scale_check_script: scripts/check_reward_scale.py
+    scale_report_dir: reports/reward_scale

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from tempfile import TemporaryDirectory
 import unittest
 from pathlib import Path
 from typing import Any
@@ -81,6 +82,7 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         *,
         short_term: bool | None,
         positive_gain: bool | None,
+        avoid_terminal_step: bool = False,
     ) -> tuple[str, int, pd.Series]:
         env._load_episode_index()
         if env._df is None:
@@ -105,9 +107,19 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
             elif positive_gain is False:
                 mask &= ep["unrealized_gains_pct"] <= 0.0
 
-            # Prefer non-terminal rows so traversal-to-row is always feasible.
+            # Final rows are not directly actionable under current traversal
+            # behavior because reaching them also returns done=True.
             if len(ep) > 1:
                 mask &= ep.index < (len(ep) - 1)
+            else:
+                continue
+            if avoid_terminal_step:
+                # Some tests assert cumulative realized accounting for the
+                # explicit action only, so they need a non-terminal sale step.
+                if len(ep) > 2:
+                    mask &= ep.index < (len(ep) - 2)
+                else:
+                    continue
 
             positions = np.flatnonzero(mask.to_numpy())
             if positions.size > 0:
@@ -161,6 +173,46 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
             places=12,
         )
 
+    def _assert_reward_a_formula(self, reward: float, info: dict[str, Any]) -> None:
+        self.assertEqual(
+            info["reward_version"],
+            "A_after_tax_total_value_change",
+        )
+        self.assertAlmostEqual(info["reward"], reward, places=12)
+        self.assertAlmostEqual(info["reward_A"], reward, places=12)
+        self.assertAlmostEqual(
+            reward,
+            info["after_tax_total_value"]
+            - info["previous_after_tax_total_value"],
+            places=12,
+        )
+        self.assertAlmostEqual(
+            info["after_tax_total_value"],
+            info["cum_realized_after_tax_pnl"]
+            + info["after_tax_liquidation_value_remaining"],
+            places=12,
+        )
+
+        remaining_pre_tax_value = info[
+            "after_tax_liquidation_pre_tax_value_remaining"
+        ]
+        if remaining_pre_tax_value > 0.0:
+            expected_tax_drag = (
+                remaining_pre_tax_value * info["after_tax_liquidation_tax_rate"]
+            )
+        else:
+            expected_tax_drag = 0.0
+        self.assertAlmostEqual(
+            info["after_tax_liquidation_tax_drag_remaining"],
+            expected_tax_drag,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            info["after_tax_liquidation_value_remaining"],
+            remaining_pre_tax_value - expected_tax_drag,
+            places=12,
+        )
+
     def test_reset_and_step_smoke(self) -> None:
         obs, reset_info = self.env.reset()
 
@@ -177,6 +229,16 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         self.assertEqual(reset_info["cum_realized_pre_tax_pnl"], 0.0)
         self.assertEqual(reset_info["cum_realized_after_tax_pnl"], 0.0)
         self.assertIn("tax_profile_name", reset_info)
+        self.assertEqual(
+            reset_info["after_tax_total_value"],
+            reset_info["previous_after_tax_total_value"],
+        )
+        self.assertAlmostEqual(
+            reset_info["after_tax_total_value"],
+            reset_info["cum_realized_after_tax_pnl"]
+            + reset_info["after_tax_liquidation_value_remaining"],
+            places=12,
+        )
 
         episode_len = len(self.env._current_episode_df)
         self.assertGreaterEqual(episode_len, 1)
@@ -185,7 +247,7 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
 
         self.assertEqual(next_obs.shape, (len(self.state_columns),))
         self.assertEqual(next_obs.dtype, np.float32)
-        self.assertEqual(reward, 0.0)
+        self._assert_reward_a_formula(reward, info)
         self.assertFalse(truncated)
 
         expected_ptr = 1 if episode_len > 1 else 0
@@ -204,7 +266,7 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         hold_idx = self._action_index_for_fraction(self.env, 0.0)
         _, reward, _, truncated, info = self.env.step(hold_idx)
 
-        self.assertEqual(reward, 0.0)
+        self._assert_reward_a_formula(reward, info)
         self.assertFalse(truncated)
         self.assertAlmostEqual(info["action_fraction_requested"], 0.0, places=12)
         self.assertAlmostEqual(info["action_fraction_executed"], 0.0, places=12)
@@ -218,7 +280,7 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         sell_50_idx = self._action_index_for_fraction(self.env, 0.5)
         _, reward, _, truncated, info = self.env.step(sell_50_idx)
 
-        self.assertEqual(reward, 0.0)
+        self._assert_reward_a_formula(reward, info)
         self.assertFalse(truncated)
         self.assertAlmostEqual(info["action_fraction_requested"], 0.5, places=12)
         self.assertAlmostEqual(info["action_fraction_executed"], 0.5, places=12)
@@ -236,7 +298,7 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         _, _, _, _, info_first = self.env.step(sell_75_idx)
         _, reward_second, done_second, truncated_second, info_second = self.env.step(sell_50_idx)
 
-        self.assertEqual(reward_second, 0.0)
+        self._assert_reward_a_formula(reward_second, info_second)
         self.assertFalse(truncated_second)
         self.assertAlmostEqual(info_first["action_fraction_requested"], 0.75, places=12)
         self.assertAlmostEqual(info_first["action_fraction_executed"], 0.75, places=12)
@@ -247,19 +309,22 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         self.assertAlmostEqual(self.env._sold_fraction, 1.0, places=12)
         self.assertAlmostEqual(self.env._remaining_fraction, 0.0, places=12)
 
-        # Step 4 placeholder terminal condition also marks done on full liquidation.
+        # Current terminal condition also marks done on full liquidation.
         self.assertTrue(done_second)
 
     def test_tax_accounting_short_term_positive_standard_profile(self) -> None:
         env = self._make_env(STANDARD_PROFILE)
         episode_id, row_pos, row = self._find_episode_row(
-            env, short_term=True, positive_gain=True
+            env,
+            short_term=True,
+            positive_gain=True,
+            avoid_terminal_step=True,
         )
         _, reward, _, truncated, info = self._run_sale_at_row(
             env, episode_id=episode_id, row_pos=row_pos, sell_fraction=0.5
         )
 
-        self.assertEqual(reward, 0.0)
+        self._assert_reward_a_formula(reward, info)
         self.assertFalse(truncated)
         self.assertEqual(info["tax_profile_name"], "mass_affluent_individual")
         self.assertEqual(info["tax_regime"], "short_term")
@@ -362,9 +427,10 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         sell_50_idx = self._action_index_for_fraction(env, 0.5)
 
         _, _, _, _, info_first = env.step(sell_75_idx)
-        _, _, done_second, truncated_second, info_second = env.step(sell_50_idx)
+        _, reward_second, done_second, truncated_second, info_second = env.step(sell_50_idx)
 
         self.assertFalse(truncated_second)
+        self._assert_reward_a_formula(reward_second, info_second)
         self.assertAlmostEqual(info_first["action_fraction_executed"], 0.75, places=12)
         self.assertAlmostEqual(info_second["action_fraction_requested"], 0.5, places=12)
         self.assertAlmostEqual(info_second["action_fraction_executed"], 0.25, places=12)
@@ -389,6 +455,238 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         self.assertAlmostEqual(
             info_second["cum_realized_after_tax_pnl"], expected_cum_after, places=12
         )
+
+
+class TestTaxAwareEnvRewardA(unittest.TestCase):
+    def _make_synthetic_env(
+        self,
+        *,
+        dates: list[str],
+        gains: list[float],
+        transition_date: str,
+        tax_profile: dict[str, Any],
+    ) -> TaxAwareEnv:
+        if len(dates) != len(gains):
+            self.fail("Synthetic dates and gains must have the same length.")
+
+        temp_dir = TemporaryDirectory()
+        self.addCleanup(temp_dir.cleanup)
+        parquet_path = Path(temp_dir.name) / "synthetic_episodes.parquet"
+        df = pd.DataFrame(
+            {
+                "episode_id": ["episode_1"] * len(dates),
+                "date": pd.to_datetime(dates),
+                "tax_transition_date": pd.to_datetime(
+                    [transition_date] * len(dates)
+                ),
+                "unrealized_gains_pct": gains,
+                "feature": np.arange(len(dates), dtype=float),
+            }
+        )
+        df.to_parquet(parquet_path)
+        return TaxAwareEnv(
+            parquet_path=parquet_path,
+            state_columns=["feature"],
+            tax_config=tax_profile,
+        )
+
+    def _action_index_for_fraction(self, env: TaxAwareEnv, target: float) -> int:
+        for idx, value in enumerate(env.action_fractions):
+            if np.isclose(value, target, atol=1e-12):
+                return idx
+        self.fail(f"Action fraction {target} not found in action_fractions.")
+        return -1
+
+    def _assert_reward_a_formula(self, reward: float, info: dict[str, Any]) -> None:
+        self.assertEqual(
+            info["reward_version"],
+            "A_after_tax_total_value_change",
+        )
+        self.assertAlmostEqual(info["reward"], reward, places=12)
+        self.assertAlmostEqual(info["reward_A"], reward, places=12)
+        self.assertAlmostEqual(
+            reward,
+            info["after_tax_total_value"]
+            - info["previous_after_tax_total_value"],
+            places=12,
+        )
+        self.assertAlmostEqual(
+            info["after_tax_total_value"],
+            info["cum_realized_after_tax_pnl"]
+            + info["after_tax_liquidation_value_remaining"],
+            places=12,
+        )
+
+    def test_holding_rewards_after_tax_position_value_changes(self) -> None:
+        env = self._make_synthetic_env(
+            dates=["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-06"],
+            gains=[0.10, 0.20, 0.05, 0.05],
+            transition_date="2020-01-10",
+            tax_profile=STANDARD_PROFILE,
+        )
+        hold_idx = self._action_index_for_fraction(env, 0.0)
+
+        _, reset_info = env.reset()
+        self.assertAlmostEqual(reset_info["after_tax_total_value"], 0.10 * 0.76)
+
+        _, reward_0, done_0, _, info_0 = env.step(hold_idx)
+        self._assert_reward_a_formula(reward_0, info_0)
+        self.assertAlmostEqual(reward_0, 0.0, places=12)
+        self.assertFalse(done_0)
+
+        _, reward_1, done_1, _, info_1 = env.step(hold_idx)
+        self._assert_reward_a_formula(reward_1, info_1)
+        self.assertAlmostEqual(reward_1, 0.20 * 0.76 - 0.10 * 0.76, places=12)
+        self.assertGreater(reward_1, 0.0)
+        self.assertFalse(done_1)
+
+        _, reward_2, done_2, _, info_2 = env.step(hold_idx)
+        self._assert_reward_a_formula(reward_2, info_2)
+        self.assertLess(reward_2, 0.0)
+        self.assertTrue(done_2)
+
+    def test_crossing_tax_transition_changes_after_tax_liquidation_value(self) -> None:
+        env = self._make_synthetic_env(
+            dates=["2020-01-01", "2020-01-02", "2020-01-03", "2020-01-06"],
+            gains=[0.10, 0.10, 0.10, 0.10],
+            transition_date="2020-01-02",
+            tax_profile=STANDARD_PROFILE,
+        )
+        hold_idx = self._action_index_for_fraction(env, 0.0)
+
+        env.reset()
+        env.step(hold_idx)
+        _, reward, done, _, info = env.step(hold_idx)
+
+        self._assert_reward_a_formula(reward, info)
+        self.assertEqual(info["after_tax_liquidation_tax_regime"], "long_term")
+        self.assertAlmostEqual(reward, 0.10 * 0.85 - 0.10 * 0.76, places=12)
+        self.assertGreater(reward, 0.0)
+        self.assertFalse(done)
+
+    def test_partial_sale_moves_value_without_double_counting(self) -> None:
+        env = self._make_synthetic_env(
+            dates=["2020-01-01", "2020-01-02", "2020-01-03"],
+            gains=[0.20, 0.20, 0.20],
+            transition_date="2020-01-10",
+            tax_profile=STANDARD_PROFILE,
+        )
+        sell_50_idx = self._action_index_for_fraction(env, 0.5)
+
+        env.reset()
+        _, reward, done, _, info = env.step(sell_50_idx)
+
+        self._assert_reward_a_formula(reward, info)
+        self.assertAlmostEqual(reward, 0.0, places=12)
+        self.assertAlmostEqual(info["cum_realized_after_tax_pnl"], 0.5 * 0.20 * 0.76)
+        self.assertAlmostEqual(
+            info["after_tax_liquidation_value_remaining"],
+            0.5 * 0.20 * 0.76,
+        )
+        self.assertFalse(done)
+
+    def test_long_term_sale_uses_profile_effective_rate(self) -> None:
+        env = self._make_synthetic_env(
+            dates=["2020-01-02", "2020-01-03", "2020-01-06"],
+            gains=[0.20, 0.20, 0.20],
+            transition_date="2020-01-01",
+            tax_profile=HIGH_INCOME_PROFILE,
+        )
+        sell_50_idx = self._action_index_for_fraction(env, 0.5)
+
+        env.reset()
+        _, reward, done, _, info = env.step(sell_50_idx)
+
+        self._assert_reward_a_formula(reward, info)
+        self.assertEqual(info["tax_regime"], "long_term")
+        self.assertAlmostEqual(info["applicable_tax_rate"], 0.188, places=12)
+        self.assertAlmostEqual(info["realized_pre_tax_increment"], 0.10, places=12)
+        self.assertAlmostEqual(info["tax_paid"], 0.0188, places=12)
+        self.assertAlmostEqual(
+            info["realized_after_tax_increment"],
+            0.0812,
+            places=12,
+        )
+        self.assertFalse(done)
+
+    def test_terminal_liquidation_uses_long_term_treatment(self) -> None:
+        terminal_profile = {
+            "profile_name": "terminal_profile",
+            "short_term_rate": 0.40,
+            "long_term_rate": 0.10,
+            "niit_rate": 0.0,
+            "apply_niit": False,
+        }
+        env = self._make_synthetic_env(
+            dates=["2020-01-01", "2020-01-02", "2020-01-03"],
+            gains=[0.10, 0.10, 0.10],
+            transition_date="2020-01-10",
+            tax_profile=terminal_profile,
+        )
+        hold_idx = self._action_index_for_fraction(env, 0.0)
+
+        _, reset_info = env.reset()
+        self.assertAlmostEqual(reset_info["after_tax_total_value"], 0.10 * 0.60)
+        env.step(hold_idx)
+        _, reward, done, _, info = env.step(hold_idx)
+
+        self._assert_reward_a_formula(reward, info)
+        self.assertTrue(done)
+        self.assertTrue(info["terminal_liquidation_executed"])
+        self.assertEqual(info["terminal_liquidation_tax_regime"], "long_term")
+        self.assertAlmostEqual(info["terminal_liquidation_tax_rate"], 0.10)
+        self.assertAlmostEqual(info["terminal_liquidation_pre_tax_increment"], 0.10)
+        self.assertAlmostEqual(info["terminal_liquidation_tax_paid"], 0.01)
+        self.assertAlmostEqual(info["terminal_liquidation_after_tax_increment"], 0.09)
+        self.assertAlmostEqual(reward, 0.10 * 0.90 - 0.10 * 0.60, places=12)
+        self.assertAlmostEqual(info["remaining_fraction"], 0.0, places=12)
+        self.assertAlmostEqual(info["after_tax_liquidation_value_remaining"], 0.0)
+        self.assertAlmostEqual(info["after_tax_total_value"], 0.09)
+
+    def test_terminal_liquidation_uses_final_row_pnl(self) -> None:
+        terminal_profile = {
+            "profile_name": "terminal_profile",
+            "short_term_rate": 0.40,
+            "long_term_rate": 0.10,
+            "niit_rate": 0.0,
+            "apply_niit": False,
+        }
+        env = self._make_synthetic_env(
+            dates=["2020-01-01", "2020-01-02", "2020-01-03"],
+            gains=[0.10, 0.10, 0.30],
+            transition_date="2020-01-10",
+            tax_profile=terminal_profile,
+        )
+        hold_idx = self._action_index_for_fraction(env, 0.0)
+
+        _, reset_info = env.reset()
+        self.assertAlmostEqual(reset_info["after_tax_total_value"], 0.10 * 0.60)
+        env.step(hold_idx)
+        _, reward, done, _, info = env.step(hold_idx)
+
+        self._assert_reward_a_formula(reward, info)
+        self.assertTrue(done)
+        self.assertEqual(info["sale_row_ptr"], 1)
+        self.assertEqual(info["terminal_liquidation_row_ptr"], 2)
+        self.assertAlmostEqual(info["full_position_pnl"], 0.10, places=12)
+        self.assertAlmostEqual(
+            info["terminal_liquidation_full_position_pnl"],
+            0.30,
+            places=12,
+        )
+        self.assertAlmostEqual(
+            info["terminal_liquidation_pre_tax_increment"],
+            0.30,
+            places=12,
+        )
+        self.assertAlmostEqual(info["terminal_liquidation_tax_paid"], 0.03)
+        self.assertAlmostEqual(
+            info["terminal_liquidation_after_tax_increment"],
+            0.27,
+            places=12,
+        )
+        self.assertAlmostEqual(reward, 0.30 * 0.90 - 0.10 * 0.60, places=12)
+        self.assertAlmostEqual(info["after_tax_total_value"], 0.27, places=12)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,22 @@
+DQN Reward A Debug Training Summary
+reward_version: A_after_tax_total_value_change
+num_debug_episodes: 20
+obs_dim: 36
+num_actions: 5
+total_environment_steps: 54
+num_optimization_steps: 0
+final_epsilon: 0.994965
+mean_loss: None
+last_loss: None
+min_loss: None
+max_loss: None
+mean_episode_reward: 0.014476583481979078
+mean_episode_length: 2.7
+nan_reward_count: 0
+inf_reward_count: 0
+nan_loss_count: 0
+inf_loss_count: 0
+model_path: runs\train_reward_a_v1\debug\final_debug_model.pt
+train_metrics_path: runs\train_reward_a_v1\debug\train_metrics.csv
+episode_rollouts_path: runs\train_reward_a_v1\debug\episode_rollouts.csv
+checkpoint_paths: ['runs\\train_reward_a_v1\\debug\\checkpoints\\checkpoint_episode_0020.pt']

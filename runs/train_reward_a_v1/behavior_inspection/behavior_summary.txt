@@ -1,0 +1,63 @@
+Reward A DQN Behavior Inspection
+
+1. Purpose
+This is a build-and-train behavior inspection of the trained Reward A greedy policy. It is not final quantitative analysis, not a thesis results table, and not a statistical significance exercise.
+
+2. Inputs
+- runs/train_reward_a_v1/baselines/baseline_step_rollouts.csv
+- runs/train_reward_a_v1/baselines/baseline_episode_metrics.csv
+- runs/train_reward_a_v1/baselines/baseline_summary_by_policy.csv
+
+3. DQN action distribution
+     split  action_idx  action_fraction_requested  step_count  step_share  mean_executed_fraction  mean_reward  median_reward  mean_remaining_fraction_after_action  terminal_step_count
+      test           0                       0.00       15338    0.784392                0.000000     0.001429       0.000000                              0.678967                  140
+      test           1                       0.25        2930    0.149841                0.250000    -0.000456       0.000000                              0.420222                  660
+      test           2                       0.50         777    0.039736                0.446589    -0.003316      -0.001000                              0.211068                  375
+      test           3                       0.75         509    0.026030                0.596758    -0.000996       0.000000                              0.081041                  344
+validation           0                       0.00       14567    0.785156                0.000000     0.000711       0.000000                              0.642359                  140
+validation           1                       0.25        2428    0.130868                0.250000    -0.000412       0.000000                              0.402595                  599
+validation           2                       0.50        1142    0.061553                0.441331    -0.001520      -0.000546                              0.217601                  551
+validation           3                       0.75         414    0.022314                0.629227     0.004700       0.001073                              0.114130                  225
+validation           4                       1.00           2    0.000108                0.250000    -0.009785      -0.009785                              0.000000                    2
+
+4. DQN first-cut behavior
+     split  num_episodes  cut_frequency  no_cut_frequency  mean_first_cut_step  median_first_cut_step  p25_first_cut_step  p75_first_cut_step  mean_first_cut_fraction_executed  median_first_cut_fraction_executed  sell_immediately_frequency  terminal_liquidation_frequency  full_liquidation_frequency  mean_episode_steps  median_episode_steps
+      test          1519       0.953259          0.046741             3.625000                    2.0                 0.0                 5.0                          0.353246                                0.25                    0.272548                        0.125741                         1.0           12.872943                  10.0
+validation          1517       0.943968          0.056032             3.280726                    2.0                 0.0                 4.0                          0.391236                                0.25                    0.276862                        0.131180                         1.0           12.230059                   9.0
+
+5. DQN episode behavior labels
+     split              behavior_label  episode_count  episode_share
+      test                delayed_exit           1034       0.680711
+      test      immediate_partial_exit            414       0.272548
+      test no_cut_terminal_liquidation             71       0.046741
+validation                delayed_exit           1012       0.667106
+validation      immediate_partial_exit            420       0.276862
+validation no_cut_terminal_liquidation             85       0.056032
+
+6. Policy behavior comparison
+     split             policy_name  num_episodes  mean_episode_total_reward  median_episode_total_reward  mean_final_after_tax_total_value  median_final_after_tax_total_value  mean_realized_after_tax_pnl  median_realized_after_tax_pnl  mean_episode_steps  median_episode_steps  terminal_liquidation_frequency  full_liquidation_frequency  cut_frequency  sell_immediately_frequency  mean_first_cut_step  median_first_cut_step  mean_first_cut_fraction_executed
+      test        hold_to_terminal          1519                   0.106164                     0.062581                          0.477090                            0.383524                     0.477090                       0.383524           82.314681                  67.0                        1.000000                         1.0       0.000000                    0.000000                  NaN                    NaN                               NaN
+      test           random_policy          1519                   0.002224                     0.000000                          0.373150                            0.263722                     0.373150                       0.263722            2.395655                   2.0                        0.052666                         1.0       0.989467                    0.795260             0.252828                    0.0                          0.609780
+      test     sell_half_then_hold          1519                   0.053082                     0.031291                          0.424008                            0.331214                     0.424008                       0.331214           82.314681                  67.0                        1.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.500000
+      test        sell_immediately          1519                   0.000000                     0.000000                          0.370926                            0.261855                     0.370926                       0.261855            1.000000                   1.0                        0.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          1.000000
+      test sell_quarters_over_time          1519                   0.002900                     0.001344                          0.373826                            0.266643                     0.373826                       0.266643            3.813035                   4.0                        0.076366                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.250000
+      test      trained_dqn_greedy          1519                   0.011514                     0.005753                          0.382440                            0.280784                     0.382440                       0.280784           12.872943                  10.0                        0.125741                         1.0       0.953259                    0.272548             3.625000                    2.0                          0.353246
+validation        hold_to_terminal          1517                   0.087327                     0.049901                          0.485359                            0.364218                     0.485359                       0.364218          102.146341                  87.0                        1.000000                         1.0       0.000000                    0.000000                  NaN                    NaN                               NaN
+validation           random_policy          1517                   0.001805                     0.000000                          0.399836                            0.262519                     0.399836                       0.262519            2.384970                   2.0                        0.045485                         1.0       0.991430                    0.793013             0.239362                    0.0                          0.627327
+validation     sell_half_then_hold          1517                   0.043664                     0.024950                          0.441695                            0.328190                     0.441695                       0.328190          102.146341                  87.0                        1.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.500000
+validation        sell_immediately          1517                   0.000000                     0.000000                          0.398031                            0.257764                     0.398031                       0.257764            1.000000                   1.0                        0.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          1.000000
+validation sell_quarters_over_time          1517                   0.001927                     0.000703                          0.399958                            0.265704                     0.399958                       0.265704            3.797627                   4.0                        0.088991                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.250000
+validation      trained_dqn_greedy          1517                   0.006297                     0.002531                          0.404328                            0.280258                     0.404328                       0.280258           12.230059                   9.0                        0.131180                         1.0       0.943968                    0.276862             3.280726                    2.0                          0.391236
+
+7. Build/train interpretation
+- test: trained_dqn_greedy cuts in 95.3% of episodes, cuts immediately in 27.3%, and reaches terminal liquidation in 12.6%.
+- test: mean DQN episode length is 12.8729 steps versus 82.3147 for hold_to_terminal (ratio 0.1564).
+- test: the pilot DQN mean reward is below hold_to_terminal in these existing baseline summaries.
+- validation: trained_dqn_greedy cuts in 94.4% of episodes, cuts immediately in 27.7%, and reaches terminal liquidation in 13.1%.
+- validation: mean DQN episode length is 12.2301 steps versus 102.1463 for hold_to_terminal (ratio 0.1197).
+- validation: the pilot DQN mean reward is below hold_to_terminal in these existing baseline summaries.
+- This inspection should be read as a mechanical behavior check before deciding whether to train beyond 500 episodes, not as final evidence.
+
+8. Recommended next build/train decision
+Recommendation note: The DQN either exits early in a large share of episodes or underperforms hold_to_terminal in the existing summaries, so treat the 500-episode model as a pilot before final analysis.
+Recommended next step: decide whether to train on more than 500 episodes.

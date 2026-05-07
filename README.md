@@ -82,10 +82,24 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── episode_validation/ # Episode validation report + diagnostics (mostly not tracked)
 │   ├── freeze/             # Versioned state-freeze snapshots (v1, v2, ...)
 │   └── tax_profiles/       # Reusable individual tax-profile configs
+├── configs/
+│   ├── reward_v1.yaml      # Frozen Reward A config
+│   └── train_reward_a_v1.yaml  # First Reward A DQN training config
+├── docs/
+│   ├── reward_freeze_v1.md # Reward A freeze document
+│   └── training_plan_v1.md # Build/train plan for Reward A
 ├── notebooks/
 │   └── explore_data.ipynb  # Interactive data exploration
 ├── scripts/
-│   └── smoke_test_environment.py  # Manual console smoke runner for environment rollouts
+│   ├── smoke_test_environment.py  # Manual console smoke runner for environment rollouts
+│   ├── reward_sanity_checks.py    # Reward A identity and scale checks
+│   ├── check_reward_scale.py      # Reward scale diagnostics
+│   ├── train_dqn_reward_a_debug.py  # Small Reward A DQN debug run
+│   ├── train_dqn_reward_a_full.py   # Full Reward A DQN training run
+│   ├── evaluate_reward_a_baselines.py  # DQN vs simple baseline policies
+│   └── inspect_reward_a_policy_behavior.py  # Learned-policy behavior inspection
+├── runs/
+│   └── train_reward_a_v1/  # Local Reward A model, metrics, baselines, behavior summaries
 ├── src/
 │   └── fetch_data.py       # Data download pipeline
 │   └── check_universe_gaps.py  # Quality checks + date filtering
@@ -250,6 +264,74 @@ The manual runner prints:
 - fixed action trajectories
 - per-step bookkeeping and tax-accounting columns for inspection
 
+### 11) Train the frozen Reward A DQN
+
+Debug run:
+
+```powershell
+python scripts/train_dqn_reward_a_debug.py
+```
+
+Full first Reward A run:
+
+```powershell
+python scripts/train_dqn_reward_a_full.py
+```
+
+Main local outputs:
+- `runs/train_reward_a_v1/final_model.pt`
+- `runs/train_reward_a_v1/episode_splits.csv`
+- `runs/train_reward_a_v1/train_metrics.csv`
+- `runs/train_reward_a_v1/eval_metrics.csv`
+- `runs/train_reward_a_v1/train_episode_rollouts.csv`
+- `runs/train_reward_a_v1/validation_episode_rollouts.csv`
+- `runs/train_reward_a_v1/training_summary.txt`
+
+The current first full run used frozen Reward A,
+`A_after_tax_total_value_change`, and was capped by
+`data.max_episodes_train: 500` in `configs/train_reward_a_v1.yaml`.
+
+### 12) Evaluate Reward A baselines
+
+```powershell
+python scripts/evaluate_reward_a_baselines.py
+```
+
+This reads the frozen Reward A training config, the trained DQN artifact, and
+the saved episode split file. It evaluates validation and test episodes only.
+
+Policies evaluated:
+- `trained_dqn_greedy`
+- `hold_to_terminal`
+- `sell_immediately`
+- `sell_half_then_hold`
+- `sell_quarters_over_time`
+- `random_policy`
+
+Main local outputs:
+- `runs/train_reward_a_v1/baselines/baseline_config_used.yaml`
+- `runs/train_reward_a_v1/baselines/baseline_episode_metrics.csv`
+- `runs/train_reward_a_v1/baselines/baseline_step_rollouts.csv`
+- `runs/train_reward_a_v1/baselines/baseline_summary_by_policy.csv`
+- `runs/train_reward_a_v1/baselines/baseline_evaluation_summary.txt`
+
+### 13) Inspect learned Reward A DQN behavior
+
+```powershell
+python scripts/inspect_reward_a_policy_behavior.py
+```
+
+This is a build-and-train behavior inspection only. It reads the existing
+baseline CSV outputs and does not reload the model, rerun the environment, or
+recompute baseline evaluation.
+
+Main local outputs:
+- `runs/train_reward_a_v1/behavior_inspection/behavior_summary.txt`
+- `runs/train_reward_a_v1/behavior_inspection/dqn_action_distribution.csv`
+- `runs/train_reward_a_v1/behavior_inspection/dqn_first_cut_summary.csv`
+- `runs/train_reward_a_v1/behavior_inspection/dqn_episode_behavior.csv`
+- `runs/train_reward_a_v1/behavior_inspection/policy_behavior_comparison.csv`
+
 ---
 
 ## Tax-aware environment
@@ -275,7 +357,16 @@ Current terminal logic:
 - `truncated=False` (placeholder; no artificial cutoff yet)
 
 Reward status:
-- reward remains a placeholder (`0.0`) pending later reward-design step.
+- Reward A is implemented as the change in total after-tax position value:
+  cumulative realized after-tax PnL plus after-tax liquidation value of
+  remaining inventory.
+- terminal unsold inventory is liquidated with long-term tax treatment.
+- Reward v1 for the first training run is frozen as
+  `A_after_tax_total_value_change`. See `docs/reward_freeze_v1.md` and
+  `configs/reward_v1.yaml`.
+- First training config for frozen Reward A is available at
+  `configs/train_reward_a_v1.yaml`. The plan is documented in
+  `docs/training_plan_v1.md`.
 
 Reset `info` includes at least:
 - `episode_id`, `current_row_ptr`, `date`
@@ -286,6 +377,9 @@ Reset `info` includes at least:
 Step `info` includes at least:
 - action bookkeeping (`action`, requested/executed fraction, sold/remaining)
 - tax/accounting fields (`tax_regime`, `applicable_tax_rate`, sale increments, cumulative totals)
+- Reward A fields (`previous_after_tax_total_value`, `after_tax_total_value`,
+  `after_tax_liquidation_value_remaining`, `reward_A`)
+- terminal liquidation fields when applicable
 - episode pointers (`current_row_ptr`, `sale_row_ptr`) and `date`
 
 ## Features added in engineered dataset
