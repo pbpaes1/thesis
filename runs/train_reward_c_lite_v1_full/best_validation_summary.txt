@@ -1,0 +1,9 @@
+DQN Best Validation Model Summary
+best_model_metric: mean_final_after_tax_total_value
+best_model_mode: max
+best_metric_value: 0.5905347704715098
+best_epoch_idx: 2
+best_epoch_number: 3
+best_global_train_episode_idx: 21000
+best_global_step: 396533
+model_path: runs/train_reward_c_lite_v1_full/best_validation_model.pt

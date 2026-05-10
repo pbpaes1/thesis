@@ -1,13 +1,13 @@
-"""Full DQN training script for frozen Reward A.
+"""Full DQN training script for environment-provided rewards.
 
-This is the first full Reward A training entrypoint. It trains only on the
-chronological training split, optionally evaluates greedily on validation
-episodes during training, and preserves the Reward A identity checks from the
-debug pipeline.
+This entrypoint keeps the Reward A script name for compatibility, but the
+reward version is read from the YAML config and checked against environment
+step info.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import random
@@ -42,13 +42,22 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.environment.tax_aware_env import TaxAwareEnv  # noqa: E402
+from src.config.tax_profiles import resolve_tax_profile_from_config  # noqa: E402
+from src.environment.tax_aware_env import (  # noqa: E402
+    REWARD_A_VERSION,
+    REWARD_C_LITE_VERSION,
+    REWARD_C_LITE_V2_VERSION,
+    TaxAwareEnv,
+)
 
 
-CONFIG_PATH = PROJECT_ROOT / "configs" / "train_reward_a_v1.yaml"
+CONFIG_PATH = PROJECT_ROOT / "configs" / "train_reward_a_v3.yaml"
 REWARD_ASSERT_TOL = 1e-8
 
 TRAIN_METRIC_COLUMNS = [
+    "epoch_idx",
+    "epoch_number",
+    "global_train_episode_idx",
     "global_step",
     "train_episode_idx",
     "episode_id",
@@ -65,6 +74,9 @@ TRAIN_METRIC_COLUMNS = [
 
 EVAL_METRIC_COLUMNS = [
     "evaluation_episode_idx",
+    "epoch_idx",
+    "epoch_number",
+    "global_train_episode_idx",
     "global_step",
     "num_validation_episodes",
     "mean_episode_total_reward",
@@ -72,6 +84,7 @@ EVAL_METRIC_COLUMNS = [
     "min_episode_total_reward",
     "max_episode_total_reward",
     "mean_final_after_tax_total_value",
+    "median_final_after_tax_total_value",
     "mean_episode_length",
     "terminal_liquidation_frequency",
     "full_liquidation_frequency",
@@ -79,6 +92,9 @@ EVAL_METRIC_COLUMNS = [
 
 TRAIN_ROLLOUT_COLUMNS = [
     "split",
+    "epoch_idx",
+    "epoch_number",
+    "global_train_episode_idx",
     "episode_idx",
     "episode_id",
     "step_in_episode",
@@ -90,6 +106,16 @@ TRAIN_ROLLOUT_COLUMNS = [
     "action_fraction_executed",
     "reward",
     "reward_A",
+    "reward_C_lite",
+    "reward_C_lite_v2",
+    "transaction_penalty",
+    "transaction_penalty_applied",
+    "cooldown_penalty",
+    "cooldown_penalty_applied",
+    "days_since_last_sale",
+    "sale_count",
+    "last_sale_date_before_step",
+    "last_sale_date_after_step",
     "after_tax_total_value",
     "previous_after_tax_total_value",
     "realized_after_tax_increment",
@@ -99,6 +125,7 @@ TRAIN_ROLLOUT_COLUMNS = [
     "remaining_fraction",
     "tax_regime",
     "after_tax_liquidation_tax_regime",
+    "is_automatic_terminal_liquidation",
     "terminal_liquidation_executed",
     "done",
     "loss",
@@ -117,6 +144,16 @@ VALIDATION_ROLLOUT_COLUMNS = [
     "action_fraction_executed",
     "reward",
     "reward_A",
+    "reward_C_lite",
+    "reward_C_lite_v2",
+    "transaction_penalty",
+    "transaction_penalty_applied",
+    "cooldown_penalty",
+    "cooldown_penalty_applied",
+    "days_since_last_sale",
+    "sale_count",
+    "last_sale_date_before_step",
+    "last_sale_date_after_step",
     "after_tax_total_value",
     "previous_after_tax_total_value",
     "realized_after_tax_increment",
@@ -126,6 +163,7 @@ VALIDATION_ROLLOUT_COLUMNS = [
     "remaining_fraction",
     "tax_regime",
     "after_tax_liquidation_tax_regime",
+    "is_automatic_terminal_liquidation",
     "terminal_liquidation_executed",
     "done",
 ]
@@ -145,6 +183,13 @@ def _project_path(path_value: str | Path) -> Path:
     if path.is_absolute():
         return path
     return PROJECT_ROOT / path
+
+
+def _relative_project_path(path: Path) -> str:
+    try:
+        return path.resolve().relative_to(PROJECT_ROOT).as_posix()
+    except ValueError:
+        return path.as_posix()
 
 
 def _format_optional_float(value: float | None) -> str:
@@ -207,7 +252,7 @@ def make_env(config: dict) -> TaxAwareEnv:
     schema_path = _project_path(_require(env_config, "state_schema_path"))
     state_columns = load_state_columns(schema_path)
     action_fractions = _require(config, "action_space.action_fractions")
-    tax_config = _require(config, "tax_profile")
+    tax_config = resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
     seed = int(_require(config, "training.seed"))
 
     return TaxAwareEnv(
@@ -215,6 +260,7 @@ def make_env(config: dict) -> TaxAwareEnv:
         state_columns=state_columns,
         action_fractions=action_fractions,
         tax_config=tax_config,
+        reward_config=config.get("reward"),
         seed=seed,
     )
 
@@ -243,9 +289,17 @@ def assert_reward_info(
         f"expected {expected_reward_version!r}."
     )
     assert approx_equal(reward, info["reward"]), "reward != info['reward']"
-    assert approx_equal(reward, info["reward_A"]), "reward != info['reward_A']"
+    reward_A = float(info["reward_A"])
+    transaction_penalty = float(info.get("transaction_penalty", 0.0) or 0.0)
+    cooldown_penalty = float(info.get("cooldown_penalty", 0.0) or 0.0)
+    reward_C_lite = info.get("reward_C_lite")
+    if reward_C_lite is not None:
+        reward_C_lite = float(reward_C_lite)
+    reward_C_lite_v2 = info.get("reward_C_lite_v2")
+    if reward_C_lite_v2 is not None:
+        reward_C_lite_v2 = float(reward_C_lite_v2)
     assert approx_equal(
-        reward,
+        reward_A,
         info["after_tax_total_value"] - info["previous_after_tax_total_value"],
     ), "Reward A identity failed."
     assert approx_equal(
@@ -253,6 +307,56 @@ def assert_reward_info(
         info["cum_realized_after_tax_pnl"]
         + info["after_tax_liquidation_value_remaining"],
     ), "After-tax total value decomposition failed."
+    if expected_reward_version == REWARD_A_VERSION:
+        assert approx_equal(reward, reward_A), "Reward A run returned non-A reward."
+        assert approx_equal(transaction_penalty, 0.0), (
+            "Reward A run produced a transaction penalty."
+        )
+        assert approx_equal(cooldown_penalty, 0.0), (
+            "Reward A run produced a cooldown penalty."
+        )
+        if reward_C_lite is not None:
+            assert approx_equal(reward_C_lite, reward_A), (
+                "Reward A run has inconsistent reward_C_lite alias."
+            )
+        if reward_C_lite_v2 is not None:
+            assert approx_equal(reward_C_lite_v2, reward_A), (
+                "Reward A run has inconsistent reward_C_lite_v2 alias."
+            )
+    elif expected_reward_version == REWARD_C_LITE_VERSION:
+        assert reward_C_lite is not None, "Reward C-lite missing info['reward_C_lite']."
+        assert approx_equal(transaction_penalty, 0.0), (
+            "Reward C-lite v1 run produced a transaction penalty."
+        )
+        assert approx_equal(reward, reward_C_lite), (
+            "Reward C-lite run returned non-C-lite reward."
+        )
+        assert approx_equal(reward_C_lite, reward_A - cooldown_penalty), (
+            "Reward C-lite identity failed."
+        )
+        if reward_C_lite_v2 is not None:
+            assert approx_equal(reward_C_lite_v2, reward_A - cooldown_penalty), (
+                "Reward C-lite v1 has inconsistent reward_C_lite_v2 alias."
+            )
+    elif expected_reward_version == REWARD_C_LITE_V2_VERSION:
+        assert reward_C_lite_v2 is not None, (
+            "Reward C-lite v2 missing info['reward_C_lite_v2']."
+        )
+        assert reward_C_lite is not None, (
+            "Reward C-lite v2 missing info['reward_C_lite']."
+        )
+        assert approx_equal(reward, reward_C_lite_v2), (
+            "Reward C-lite v2 run returned non-v2 reward."
+        )
+        assert approx_equal(reward_C_lite, reward_A - cooldown_penalty), (
+            "Reward C-lite v2 has inconsistent reward_C_lite diagnostic."
+        )
+        assert approx_equal(
+            reward_C_lite_v2,
+            reward_A - transaction_penalty - cooldown_penalty,
+        ), "Reward C-lite v2 identity failed."
+    else:
+        raise AssertionError(f"Unsupported expected reward version: {expected_reward_version}")
     assert np.isfinite(reward), "Reward is not finite."
 
 
@@ -407,6 +511,60 @@ class ReplayBuffer:
         return len(self._buffer)
 
 
+def load_exploration_action_probabilities(
+    config: dict,
+    num_actions: int,
+) -> np.ndarray | None:
+    exploration_config = config.get("exploration")
+    if exploration_config is None:
+        return None
+    if not isinstance(exploration_config, dict):
+        raise ValueError("exploration must be a mapping when provided.")
+
+    policy = exploration_config.get("random_action_policy", "uniform")
+    if policy == "uniform":
+        return None
+    if policy != "hold_biased":
+        raise ValueError(
+            "Unsupported exploration.random_action_policy="
+            f"{policy!r}; expected 'uniform' or 'hold_biased'."
+        )
+
+    raw_probs = exploration_config.get("action_probabilities")
+    if raw_probs is None:
+        raise ValueError(
+            "exploration.action_probabilities is required for hold_biased exploration."
+        )
+
+    try:
+        probs = np.asarray(raw_probs, dtype=float)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "exploration.action_probabilities must be numeric."
+        ) from exc
+
+    if probs.shape != (num_actions,):
+        raise ValueError(
+            "exploration.action_probabilities must have shape "
+            f"({num_actions},), got {probs.shape}."
+        )
+    if not np.isfinite(probs).all():
+        raise ValueError(
+            "exploration.action_probabilities must contain only finite values."
+        )
+    if (probs < 0.0).any():
+        raise ValueError(
+            "exploration.action_probabilities must not contain negative values."
+        )
+    if not np.isclose(float(probs.sum()), 1.0):
+        raise ValueError(
+            "exploration.action_probabilities must sum to 1.0, got "
+            f"{float(probs.sum()):.12f}."
+        )
+
+    return probs
+
+
 def select_epsilon_greedy_action(
     q_net: QNetwork,
     obs: np.ndarray,
@@ -414,6 +572,7 @@ def select_epsilon_greedy_action(
     num_actions: int,
     rng: np.random.Generator,
     device: torch.device,
+    exploration_action_probabilities: np.ndarray | None = None,
 ) -> int:
     with torch.no_grad():
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
@@ -426,6 +585,10 @@ def select_epsilon_greedy_action(
         if not torch.isfinite(q_values).all():
             raise AssertionError("Q-values contain NaN or infinite values.")
         if rng.random() < epsilon:
+            if exploration_action_probabilities is not None:
+                return int(
+                    rng.choice(num_actions, p=exploration_action_probabilities)
+                )
             return int(rng.integers(0, num_actions))
         return int(torch.argmax(q_values, dim=1).item())
 
@@ -602,6 +765,24 @@ def run_validation_policy(
                         ),
                         "reward": reward,
                         "reward_A": info.get("reward_A"),
+                        "reward_C_lite": info.get("reward_C_lite"),
+                        "reward_C_lite_v2": info.get("reward_C_lite_v2"),
+                        "transaction_penalty": info.get("transaction_penalty"),
+                        "transaction_penalty_applied": info.get(
+                            "transaction_penalty_applied"
+                        ),
+                        "cooldown_penalty": info.get("cooldown_penalty"),
+                        "cooldown_penalty_applied": info.get(
+                            "cooldown_penalty_applied"
+                        ),
+                        "days_since_last_sale": info.get("days_since_last_sale"),
+                        "sale_count": info.get("sale_count"),
+                        "last_sale_date_before_step": info.get(
+                            "last_sale_date_before_step"
+                        ),
+                        "last_sale_date_after_step": info.get(
+                            "last_sale_date_after_step"
+                        ),
                         "after_tax_total_value": info.get("after_tax_total_value"),
                         "previous_after_tax_total_value": info.get(
                             "previous_after_tax_total_value"
@@ -620,6 +801,9 @@ def run_validation_policy(
                         "tax_regime": info.get("tax_regime"),
                         "after_tax_liquidation_tax_regime": info.get(
                             "after_tax_liquidation_tax_regime"
+                        ),
+                        "is_automatic_terminal_liquidation": info.get(
+                            "is_automatic_terminal_liquidation"
                         ),
                         "terminal_liquidation_executed": info.get(
                             "terminal_liquidation_executed"
@@ -655,6 +839,7 @@ def run_validation_policy(
         "min_episode_total_reward": float(np.min(episode_rewards)),
         "max_episode_total_reward": float(np.max(episode_rewards)),
         "mean_final_after_tax_total_value": float(np.mean(final_values)),
+        "median_final_after_tax_total_value": float(np.median(final_values)),
         "mean_episode_length": float(np.mean(episode_lengths)),
         "terminal_liquidation_frequency": float(np.mean(terminal_liquidation_flags)),
         "full_liquidation_frequency": float(np.mean(full_liquidation_flags)),
@@ -675,21 +860,40 @@ def _checkpoint_payload(
     expected_reward_version: str,
     global_step: int,
     train_episode_idx: int,
+    exploration_random_action_policy: str = "uniform",
+    exploration_action_probabilities: list[float] | None = None,
+    epoch_idx: int | None = None,
+    epoch_number: int | None = None,
+    global_train_episode_idx: int | None = None,
+    best_model_metric: str | None = None,
+    best_metric_value: float | None = None,
 ) -> dict:
+    resolved_tax_profile = resolve_tax_profile_from_config(
+        config,
+        base_dir=PROJECT_ROOT,
+    )
     return {
         "model_state_dict": q_net.state_dict(),
         "target_model_state_dict": target_net.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "config": config,
+        "resolved_tax_profile": resolved_tax_profile,
         "obs_dim": obs_dim,
         "num_actions": num_actions,
         "reward_version": expected_reward_version,
         "global_step": global_step,
         "train_episode_idx": train_episode_idx,
+        "epoch_idx": epoch_idx,
+        "epoch_number": epoch_number,
+        "global_train_episode_idx": global_train_episode_idx,
+        "best_model_metric": best_model_metric,
+        "best_metric_value": best_metric_value,
+        "exploration_random_action_policy": exploration_random_action_policy,
+        "exploration_action_probabilities": exploration_action_probabilities,
     }
 
 
-def _validate_config_for_reward_a(config: dict) -> None:
+def _validate_config_for_environment_reward(config: dict) -> None:
     algorithm_name = str(_require(config, "algorithm.name")).lower()
     framework = str(_require(config, "algorithm.framework")).lower()
     optimizer_name = str(_require(config, "training.optimizer")).lower()
@@ -713,11 +917,20 @@ def _validate_config_for_reward_a(config: dict) -> None:
             "Config reward.version and reward.expected_info_reward_version "
             f"must match, got {reward_version!r} and {expected_reward_version!r}."
         )
+    supported_reward_versions = {
+        REWARD_A_VERSION,
+        REWARD_C_LITE_VERSION,
+        REWARD_C_LITE_V2_VERSION,
+    }
+    if reward_version not in supported_reward_versions:
+        raise ValueError(
+            f"Unsupported reward.version={reward_version!r}; expected "
+            f"one of {sorted(supported_reward_versions)}."
+        )
     if not bool(_require(config, "reward.use_environment_reward")):
-        raise ValueError("Reward A full training requires use_environment_reward=true.")
+        raise ValueError("Full training requires use_environment_reward=true.")
     excluded_flags = [
         "reward.use_drawdown_penalty",
-        "reward.use_cooldown_penalty",
         "reward.use_explicit_tax_saving_bonus",
         "reward.use_reward_clipping",
         "reward.use_reward_normalization",
@@ -725,13 +938,123 @@ def _validate_config_for_reward_a(config: dict) -> None:
     enabled_flags = [flag for flag in excluded_flags if bool(_require(config, flag))]
     if enabled_flags:
         raise ValueError(
-            "Reward A full training must not enable deferred reward options: "
+            "Full training must not enable unsupported reward options: "
             f"{enabled_flags}"
         )
+    use_cooldown_penalty = bool(_require(config, "reward.use_cooldown_penalty"))
+    use_transaction_penalty = bool(
+        _get_nested(config, "reward.use_transaction_penalty", False)
+    )
+    if reward_version == REWARD_A_VERSION and (
+        use_cooldown_penalty or use_transaction_penalty
+    ):
+        raise ValueError(
+            "Reward A full training requires transaction and cooldown penalties off."
+        )
+    if reward_version in {REWARD_C_LITE_VERSION, REWARD_C_LITE_V2_VERSION}:
+        if str(_require(config, "reward.base_reward_version")) != REWARD_A_VERSION:
+            raise ValueError("Reward C-lite requires base_reward_version=Reward A.")
+        if not use_cooldown_penalty:
+            raise ValueError("Reward C-lite requires use_cooldown_penalty=true.")
+        cooldown_config = _require(config, "reward.cooldown_penalty")
+        if not bool(_require(cooldown_config, "enabled")):
+            raise ValueError("Reward C-lite requires cooldown_penalty.enabled=true.")
+        if float(_require(cooldown_config, "lambda_cooldown")) < 0.0:
+            raise ValueError("lambda_cooldown must be non-negative.")
+        if int(_require(cooldown_config, "cooldown_days")) <= 0:
+            raise ValueError("cooldown_days must be positive.")
+        if bool(_require(cooldown_config, "penalize_first_sale")):
+            raise ValueError("Reward C-lite must not penalize the first sale.")
+        if bool(
+            _get_nested(
+                cooldown_config,
+                "apply_to_automatic_terminal_liquidation",
+                False,
+            )
+        ):
+            raise ValueError(
+                "Reward C-lite must not penalize automatic terminal liquidation."
+            )
+    if reward_version == REWARD_C_LITE_VERSION and use_transaction_penalty:
+        raise ValueError("Reward C-lite v1 requires use_transaction_penalty=false.")
+    if reward_version == REWARD_C_LITE_V2_VERSION:
+        if not use_transaction_penalty:
+            raise ValueError("Reward C-lite v2 requires use_transaction_penalty=true.")
+        transaction_config = _require(config, "reward.transaction_penalty")
+        if not bool(_require(transaction_config, "enabled")):
+            raise ValueError(
+                "Reward C-lite v2 requires transaction_penalty.enabled=true."
+            )
+        if float(_require(transaction_config, "lambda_transaction")) < 0.0:
+            raise ValueError("lambda_transaction must be non-negative.")
+        if not bool(_require(transaction_config, "scale_by_executed_fraction")):
+            raise ValueError(
+                "Reward C-lite v2 requires transaction penalties to scale by "
+                "executed fraction."
+            )
+        if not bool(_require(transaction_config, "apply_to_first_sale")):
+            raise ValueError("Reward C-lite v2 must penalize the first sale.")
+        if bool(_require(transaction_config, "apply_to_automatic_terminal_liquidation")):
+            raise ValueError(
+                "Reward C-lite v2 must not penalize automatic terminal liquidation."
+            )
 
 
-def train_full(config: dict) -> dict:
-    _validate_config_for_reward_a(config)
+def _get_nested(config: dict, path: str, default: Any = None) -> Any:
+    current: Any = config
+    for key in path.split("."):
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    return current
+
+
+def _is_better_metric(
+    current_value: float,
+    best_value: float | None,
+    mode: str,
+) -> bool:
+    if not np.isfinite(current_value):
+        return False
+    if best_value is None:
+        return True
+    if mode == "max":
+        return current_value > best_value
+    if mode == "min":
+        return current_value < best_value
+    raise ValueError(f"Unsupported training.best_model_mode={mode!r}.")
+
+
+def write_best_validation_summary(
+    path: Path,
+    *,
+    best_model_metric: str,
+    best_model_mode: str,
+    best_metric_value: float,
+    best_epoch_idx: int,
+    best_epoch_number: int,
+    best_global_train_episode_idx: int,
+    best_global_step: int,
+    model_path: Path,
+) -> None:
+    payload = {
+        "best_model_metric": best_model_metric,
+        "best_model_mode": best_model_mode,
+        "best_metric_value": best_metric_value,
+        "best_epoch_idx": best_epoch_idx,
+        "best_epoch_number": best_epoch_number,
+        "best_global_train_episode_idx": best_global_train_episode_idx,
+        "best_global_step": best_global_step,
+        "model_path": _relative_project_path(model_path),
+    }
+    with path.open("w", encoding="utf-8") as handle:
+        handle.write("DQN Best Validation Model Summary\n")
+        for key, value in payload.items():
+            handle.write(f"{key}: {value}\n")
+
+
+def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
+    _validate_config_for_environment_reward(config)
 
     seed = int(_require(config, "training.seed"))
     gamma = float(_require(config, "training.discount_factor_gamma"))
@@ -762,13 +1085,74 @@ def train_full(config: dict) -> dict:
         max_episodes_train = int(max_episodes_train)
         if max_episodes_train <= 0:
             raise ValueError("data.max_episodes_train must be positive when set.")
+    num_epochs = int(_get_nested(config, "training.num_epochs", 1))
+    if num_epochs <= 0:
+        raise ValueError("training.num_epochs must be positive.")
+    save_best_validation_model = bool(
+        _get_nested(config, "training.save_best_validation_model", False)
+    )
+    best_model_metric = str(
+        _get_nested(
+            config,
+            "training.best_model_metric",
+            "mean_final_after_tax_total_value",
+        )
+    )
+    best_model_mode = str(_get_nested(config, "training.best_model_mode", "max"))
+    if best_model_mode not in {"max", "min"}:
+        raise ValueError("training.best_model_mode must be 'max' or 'min'.")
 
     expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
+    base_reward_version = str(
+        _get_nested(config, "reward.base_reward_version", REWARD_A_VERSION)
+    )
+    transaction_config = _get_nested(config, "reward.transaction_penalty", {}) or {}
+    transaction_penalty_enabled = bool(
+        _get_nested(config, "reward.use_transaction_penalty", False)
+    )
+    lambda_transaction = transaction_config.get("lambda_transaction")
+    cooldown_config = _get_nested(config, "reward.cooldown_penalty", {}) or {}
+    cooldown_penalty_enabled = bool(
+        _get_nested(config, "reward.use_cooldown_penalty", False)
+    )
+    lambda_cooldown = cooldown_config.get("lambda_cooldown")
+    cooldown_days = cooldown_config.get("cooldown_days")
+    run_name = str(_require(config, "run.name"))
     device = resolve_device(str(_require(config, "training.device")))
     output_dir = _project_path(_require(config, "logging.output_dir"))
     checkpoint_dir = output_dir / "checkpoints"
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
+    resolved_tax_profile = resolve_tax_profile_from_config(
+        config,
+        base_dir=PROJECT_ROOT,
+    )
+    configured_action_fractions = _require(config, "action_space.action_fractions")
+    exploration_action_probabilities = load_exploration_action_probabilities(
+        config=config,
+        num_actions=len(configured_action_fractions),
+    )
+    exploration_random_action_policy = (
+        "uniform"
+        if exploration_action_probabilities is None
+        else str(config["exploration"]["random_action_policy"])
+    )
+    exploration_action_probabilities_list = (
+        exploration_action_probabilities.tolist()
+        if exploration_action_probabilities is not None
+        else None
+    )
+    print(
+        "DQN Full Training\n"
+        f"config={_relative_project_path(config_path)}\n"
+        f"run_name={run_name}\n"
+        f"reward_version={expected_reward_version}\n"
+        f"output_dir={_relative_project_path(output_dir)}\n"
+        f"gamma={gamma}\n"
+        f"num_epochs={num_epochs}\n"
+        f"exploration_policy={exploration_random_action_policy}\n"
+        f"epsilon_decay_steps={epsilon_decay_steps}"
+    )
 
     set_seeds(seed)
     rng = np.random.default_rng(seed)
@@ -778,7 +1162,7 @@ def train_full(config: dict) -> dict:
     )
     obs_dim = len(state_columns)
 
-    for fraction in _require(config, "action_space.action_fractions"):
+    for fraction in configured_action_fractions:
         action_index_for_fraction(env, float(fraction))
 
     env._load_episode_index()
@@ -809,6 +1193,11 @@ def train_full(config: dict) -> dict:
     hidden_layers = list(_require(config, "algorithm.policy_network.hidden_layers"))
     activation = str(_require(config, "algorithm.policy_network.activation"))
     num_actions = len(env.action_fractions)
+    if num_actions != len(configured_action_fractions):
+        raise AssertionError(
+            "Environment action count does not match configured action_fractions."
+        )
+
     q_net = QNetwork(obs_dim, num_actions, hidden_layers, activation).to(device)
     target_net = QNetwork(obs_dim, num_actions, hidden_layers, activation).to(device)
     target_net.load_state_dict(q_net.state_dict())
@@ -847,236 +1236,358 @@ def train_full(config: dict) -> dict:
     config_used_path = output_dir / "config_used.yaml"
     save_yaml(config, config_used_path)
 
-    for train_episode_idx, episode_id in enumerate(train_ids, start=1):
-        obs, _reset_info = env.reset(episode_id=episode_id)
-        if obs.shape != (obs_dim,):
-            raise AssertionError(
-                f"Observation shape {obs.shape} does not match expected {(obs_dim,)}."
-            )
-        if not np.isfinite(obs).all():
-            raise AssertionError("Initial observation contains NaN or infinite values.")
+    total_training_episode_passes = len(train_ids) * num_epochs
+    global_train_episode_idx = 0
+    best_validation_model_path = output_dir / "best_validation_model.pt"
+    best_validation_summary_path = output_dir / "best_validation_summary.txt"
+    best_validation_metric_value: float | None = None
+    best_validation_epoch_idx: int | None = None
+    best_validation_epoch_number: int | None = None
+    best_validation_global_train_episode_idx: int | None = None
+    best_validation_global_step: int | None = None
 
-        done = False
-        step_in_episode = 0
-        episode_total_reward = 0.0
-        max_steps = len(env._current_episode_df) + 5
-        last_info: dict[str, Any] | None = None
-        episode_last_loss: float | None = None
-
-        while not done:
-            if step_in_episode > max_steps:
-                raise RuntimeError(
-                    f"Safety cap exceeded for episode_id={episode_id}: "
-                    f"max_steps={max_steps}."
-                )
-
-            epsilon = compute_epsilon(
-                global_step,
-                epsilon_start,
-                epsilon_end,
-                epsilon_decay_steps,
-            )
-            final_epsilon = epsilon
-            action_idx = select_epsilon_greedy_action(
-                q_net,
-                obs,
-                epsilon,
-                num_actions,
-                rng,
-                device,
-            )
-            next_obs, reward, done, truncated, info = env.step(action_idx)
-            if truncated is not False:
-                raise AssertionError("TaxAwareEnv returned truncated=True in training.")
-            assert_reward_info(reward, info, expected_reward_version)
-            if np.isnan(reward):
-                nan_reward_count += 1
-            if np.isinf(reward):
-                inf_reward_count += 1
-            if not np.isfinite(reward):
-                raise AssertionError("Reward is NaN or infinite.")
-            if next_obs.shape != (obs_dim,):
+    for epoch_idx in range(num_epochs):
+        epoch_number = epoch_idx + 1
+        for train_episode_idx, episode_id in enumerate(train_ids, start=1):
+            global_train_episode_idx += 1
+            obs, _reset_info = env.reset(episode_id=episode_id)
+            if obs.shape != (obs_dim,):
                 raise AssertionError(
-                    f"Next observation shape {next_obs.shape} does not match "
-                    f"expected {(obs_dim,)}."
+                    f"Observation shape {obs.shape} does not match expected {(obs_dim,)}."
                 )
-            if not np.isfinite(next_obs).all():
-                raise AssertionError("Next observation contains NaN or infinite values.")
+            if not np.isfinite(obs).all():
+                raise AssertionError("Initial observation contains NaN or infinite values.")
 
-            replay_buffer.push(obs, action_idx, reward, next_obs, done)
-            optimize_result = optimize_dqn(
-                q_net=q_net,
-                target_net=target_net,
-                replay_buffer=replay_buffer,
-                optimizer=optimizer,
-                batch_size=batch_size,
-                gamma=gamma,
-                device=device,
-                gradient_clip_norm=gradient_clip_norm,
-            )
-            loss: float | None = None
-            if optimize_result is not None:
-                loss, mean_q, max_q, min_q = optimize_result
-                if np.isnan(loss):
-                    nan_loss_count += 1
-                if np.isinf(loss):
-                    inf_loss_count += 1
-                if not np.isfinite(loss):
-                    raise AssertionError("DQN loss is NaN or infinite.")
-                losses.append(loss)
-                last_loss = loss
-                episode_last_loss = loss
-                optimization_steps += 1
-                train_metric_rows.append(
+            done = False
+            step_in_episode = 0
+            episode_total_reward = 0.0
+            max_steps = len(env._current_episode_df) + 5
+            last_info: dict[str, Any] | None = None
+            episode_last_loss: float | None = None
+
+            while not done:
+                if step_in_episode > max_steps:
+                    raise RuntimeError(
+                        f"Safety cap exceeded for epoch={epoch_number} "
+                        f"episode_id={episode_id}: max_steps={max_steps}."
+                    )
+
+                epsilon = compute_epsilon(
+                    global_step,
+                    epsilon_start,
+                    epsilon_end,
+                    epsilon_decay_steps,
+                )
+                final_epsilon = epsilon
+                action_idx = select_epsilon_greedy_action(
+                    q_net,
+                    obs,
+                    epsilon,
+                    num_actions,
+                    rng,
+                    device,
+                    exploration_action_probabilities,
+                )
+                next_obs, reward, done, truncated, info = env.step(action_idx)
+                if truncated is not False:
+                    raise AssertionError(
+                        "TaxAwareEnv returned truncated=True in training."
+                    )
+                assert_reward_info(reward, info, expected_reward_version)
+                if np.isnan(reward):
+                    nan_reward_count += 1
+                if np.isinf(reward):
+                    inf_reward_count += 1
+                if not np.isfinite(reward):
+                    raise AssertionError("Reward is NaN or infinite.")
+                if next_obs.shape != (obs_dim,):
+                    raise AssertionError(
+                        f"Next observation shape {next_obs.shape} does not match "
+                        f"expected {(obs_dim,)}."
+                    )
+                if not np.isfinite(next_obs).all():
+                    raise AssertionError(
+                        "Next observation contains NaN or infinite values."
+                    )
+
+                replay_buffer.push(obs, action_idx, reward, next_obs, done)
+                optimize_result = optimize_dqn(
+                    q_net=q_net,
+                    target_net=target_net,
+                    replay_buffer=replay_buffer,
+                    optimizer=optimizer,
+                    batch_size=batch_size,
+                    gamma=gamma,
+                    device=device,
+                    gradient_clip_norm=gradient_clip_norm,
+                )
+                loss: float | None = None
+                if optimize_result is not None:
+                    loss, mean_q, max_q, min_q = optimize_result
+                    if np.isnan(loss):
+                        nan_loss_count += 1
+                    if np.isinf(loss):
+                        inf_loss_count += 1
+                    if not np.isfinite(loss):
+                        raise AssertionError("DQN loss is NaN or infinite.")
+                    losses.append(loss)
+                    last_loss = loss
+                    episode_last_loss = loss
+                    optimization_steps += 1
+                    train_metric_rows.append(
+                        {
+                            "epoch_idx": epoch_idx,
+                            "epoch_number": epoch_number,
+                            "global_train_episode_idx": global_train_episode_idx,
+                            "global_step": global_step,
+                            "train_episode_idx": train_episode_idx,
+                            "episode_id": episode_id,
+                            "step_in_episode": step_in_episode,
+                            "epsilon": epsilon,
+                            "loss": loss,
+                            "replay_buffer_size": len(replay_buffer),
+                            "mean_q_value": mean_q,
+                            "max_q_value": max_q,
+                            "min_q_value": min_q,
+                            "reward": reward,
+                            "done": done,
+                        }
+                    )
+
+                if (
+                    target_update_frequency_steps > 0
+                    and global_step > 0
+                    and global_step % target_update_frequency_steps == 0
+                ):
+                    target_net.load_state_dict(q_net.state_dict())
+
+                train_rollout_rows.append(
                     {
-                        "global_step": global_step,
-                        "train_episode_idx": train_episode_idx,
+                        "split": "train",
+                        "epoch_idx": epoch_idx,
+                        "epoch_number": epoch_number,
+                        "global_train_episode_idx": global_train_episode_idx,
+                        "episode_idx": train_episode_idx,
                         "episode_id": episode_id,
                         "step_in_episode": step_in_episode,
+                        "global_step": global_step,
+                        "date": info.get("date"),
                         "epsilon": epsilon,
-                        "loss": loss,
-                        "replay_buffer_size": len(replay_buffer),
-                        "mean_q_value": mean_q,
-                        "max_q_value": max_q,
-                        "min_q_value": min_q,
+                        "action_idx": action_idx,
+                        "action_fraction_requested": info.get(
+                            "action_fraction_requested"
+                        ),
+                        "action_fraction_executed": info.get(
+                            "action_fraction_executed"
+                        ),
                         "reward": reward,
+                        "reward_A": info.get("reward_A"),
+                        "reward_C_lite": info.get("reward_C_lite"),
+                        "reward_C_lite_v2": info.get("reward_C_lite_v2"),
+                        "transaction_penalty": info.get("transaction_penalty"),
+                        "transaction_penalty_applied": info.get(
+                            "transaction_penalty_applied"
+                        ),
+                        "cooldown_penalty": info.get("cooldown_penalty"),
+                        "cooldown_penalty_applied": info.get(
+                            "cooldown_penalty_applied"
+                        ),
+                        "days_since_last_sale": info.get("days_since_last_sale"),
+                        "sale_count": info.get("sale_count"),
+                        "last_sale_date_before_step": info.get(
+                            "last_sale_date_before_step"
+                        ),
+                        "last_sale_date_after_step": info.get(
+                            "last_sale_date_after_step"
+                        ),
+                        "after_tax_total_value": info.get("after_tax_total_value"),
+                        "previous_after_tax_total_value": info.get(
+                            "previous_after_tax_total_value"
+                        ),
+                        "realized_after_tax_increment": info.get(
+                            "realized_after_tax_increment"
+                        ),
+                        "cum_realized_after_tax_pnl": info.get(
+                            "cum_realized_after_tax_pnl"
+                        ),
+                        "after_tax_liquidation_value_remaining": info.get(
+                            "after_tax_liquidation_value_remaining"
+                        ),
+                        "sold_fraction": info.get("sold_fraction"),
+                        "remaining_fraction": info.get("remaining_fraction"),
+                        "tax_regime": info.get("tax_regime"),
+                        "after_tax_liquidation_tax_regime": info.get(
+                            "after_tax_liquidation_tax_regime"
+                        ),
+                        "is_automatic_terminal_liquidation": info.get(
+                            "is_automatic_terminal_liquidation"
+                        ),
+                        "terminal_liquidation_executed": info.get(
+                            "terminal_liquidation_executed"
+                        ),
                         "done": done,
+                        "loss": loss,
                     }
                 )
 
-            if (
-                target_update_frequency_steps > 0
-                and global_step > 0
-                and global_step % target_update_frequency_steps == 0
-            ):
-                target_net.load_state_dict(q_net.state_dict())
+                episode_total_reward += float(reward)
+                last_info = info
+                obs = next_obs
+                step_in_episode += 1
+                global_step += 1
 
-            train_rollout_rows.append(
-                {
-                    "split": "train",
-                    "episode_idx": train_episode_idx,
-                    "episode_id": episode_id,
-                    "step_in_episode": step_in_episode,
-                    "global_step": global_step,
-                    "date": info.get("date"),
-                    "epsilon": epsilon,
-                    "action_idx": action_idx,
-                    "action_fraction_requested": info.get(
-                        "action_fraction_requested"
-                    ),
-                    "action_fraction_executed": info.get("action_fraction_executed"),
-                    "reward": reward,
-                    "reward_A": info.get("reward_A"),
-                    "after_tax_total_value": info.get("after_tax_total_value"),
-                    "previous_after_tax_total_value": info.get(
-                        "previous_after_tax_total_value"
-                    ),
-                    "realized_after_tax_increment": info.get(
-                        "realized_after_tax_increment"
-                    ),
-                    "cum_realized_after_tax_pnl": info.get(
-                        "cum_realized_after_tax_pnl"
-                    ),
-                    "after_tax_liquidation_value_remaining": info.get(
-                        "after_tax_liquidation_value_remaining"
-                    ),
-                    "sold_fraction": info.get("sold_fraction"),
-                    "remaining_fraction": info.get("remaining_fraction"),
-                    "tax_regime": info.get("tax_regime"),
-                    "after_tax_liquidation_tax_regime": info.get(
-                        "after_tax_liquidation_tax_regime"
-                    ),
-                    "terminal_liquidation_executed": info.get(
-                        "terminal_liquidation_executed"
-                    ),
-                    "done": done,
-                    "loss": loss,
-                }
+            train_episode_rewards.append(episode_total_reward)
+            train_episode_lengths.append(step_in_episode)
+            final_value = (
+                float(last_info["after_tax_total_value"])
+                if last_info is not None
+                else float("nan")
             )
-
-            episode_total_reward += float(reward)
-            last_info = info
-            obs = next_obs
-            step_in_episode += 1
-            global_step += 1
-
-        train_episode_rewards.append(episode_total_reward)
-        train_episode_lengths.append(step_in_episode)
-        final_value = (
-            float(last_info["after_tax_total_value"]) if last_info is not None else float("nan")
-        )
-        print(
-            f"episode={train_episode_idx}/{len(train_ids)} "
-            f"episode_id={episode_id} "
-            f"steps={step_in_episode} "
-            f"total_reward={episode_total_reward:.8f} "
-            f"final_value={final_value:.8f} "
-            f"epsilon={final_epsilon:.6f} "
-            f"last_loss={_format_optional_float(episode_last_loss)}"
-        )
-
-        should_checkpoint = (
-            checkpoint_frequency_episodes > 0
-            and train_episode_idx % checkpoint_frequency_episodes == 0
-        ) or train_episode_idx == len(train_ids)
-        if should_checkpoint:
-            checkpoint_path = (
-                checkpoint_dir / f"checkpoint_episode_{train_episode_idx:04d}.pt"
-            )
-            torch.save(
-                _checkpoint_payload(
-                    q_net,
-                    target_net,
-                    optimizer,
-                    config,
-                    obs_dim,
-                    num_actions,
-                    expected_reward_version,
-                    global_step,
-                    train_episode_idx,
-                ),
-                checkpoint_path,
-            )
-
-        should_validate = (
-            evaluate_during_training
-            and validation_ids
-            and evaluation_frequency_episodes > 0
-            and (
-                train_episode_idx % evaluation_frequency_episodes == 0
-                or train_episode_idx == len(train_ids)
-            )
-        )
-        if should_validate:
-            validation_rollouts, validation_metrics = run_validation_policy(
-                env=env,
-                q_net=q_net,
-                episode_ids=validation_ids,
-                expected_reward_version=expected_reward_version,
-                device=device,
-                max_eval_episodes=max_eval_episodes,
-            )
-            validation_rollouts["evaluation_episode_idx"] = train_episode_idx
-            validation_rollouts["global_step"] = global_step
-            validation_rollout_frames.append(validation_rollouts)
-            eval_row = {
-                "evaluation_episode_idx": train_episode_idx,
-                "global_step": global_step,
-                **validation_metrics,
-            }
-            eval_metric_rows.append(eval_row)
             print(
-                f"validation_at_episode={train_episode_idx} "
-                f"global_step={global_step} "
-                f"mean_reward={validation_metrics['mean_episode_total_reward']:.8f} "
-                f"median_reward={validation_metrics['median_episode_total_reward']:.8f} "
-                "terminal_liquidation_frequency="
-                f"{validation_metrics['terminal_liquidation_frequency']:.8f}"
+                f"epoch={epoch_number}/{num_epochs} "
+                f"episode={train_episode_idx}/{len(train_ids)} "
+                f"global_episode={global_train_episode_idx} "
+                f"episode_id={episode_id} "
+                f"steps={step_in_episode} "
+                f"total_reward={episode_total_reward:.8f} "
+                f"final_value={final_value:.8f} "
+                f"epsilon={final_epsilon:.6f} "
+                f"last_loss={_format_optional_float(episode_last_loss)}"
             )
+
+            should_checkpoint = (
+                checkpoint_frequency_episodes > 0
+                and global_train_episode_idx % checkpoint_frequency_episodes == 0
+            ) or global_train_episode_idx == total_training_episode_passes
+            if should_checkpoint:
+                checkpoint_path = (
+                    checkpoint_dir
+                    / f"checkpoint_global_episode_{global_train_episode_idx:06d}.pt"
+                )
+                torch.save(
+                    _checkpoint_payload(
+                        q_net,
+                        target_net,
+                        optimizer,
+                        config,
+                        obs_dim,
+                        num_actions,
+                        expected_reward_version,
+                        global_step,
+                        train_episode_idx,
+                        exploration_random_action_policy,
+                        exploration_action_probabilities_list,
+                        epoch_idx=epoch_idx,
+                        epoch_number=epoch_number,
+                        global_train_episode_idx=global_train_episode_idx,
+                    ),
+                    checkpoint_path,
+                )
+
+            should_validate = (
+                evaluate_during_training
+                and validation_ids
+                and evaluation_frequency_episodes > 0
+                and (
+                    global_train_episode_idx % evaluation_frequency_episodes == 0
+                    or global_train_episode_idx == total_training_episode_passes
+                )
+            )
+            if should_validate:
+                validation_rollouts, validation_metrics = run_validation_policy(
+                    env=env,
+                    q_net=q_net,
+                    episode_ids=validation_ids,
+                    expected_reward_version=expected_reward_version,
+                    device=device,
+                    max_eval_episodes=max_eval_episodes,
+                )
+                validation_rollouts["evaluation_episode_idx"] = (
+                    global_train_episode_idx
+                )
+                validation_rollouts["global_step"] = global_step
+                validation_rollout_frames.append(validation_rollouts)
+                eval_row = {
+                    "evaluation_episode_idx": global_train_episode_idx,
+                    "epoch_idx": epoch_idx,
+                    "epoch_number": epoch_number,
+                    "global_train_episode_idx": global_train_episode_idx,
+                    "global_step": global_step,
+                    **validation_metrics,
+                }
+                eval_metric_rows.append(eval_row)
+                print(
+                    f"validation_at_global_episode={global_train_episode_idx} "
+                    f"epoch={epoch_number} "
+                    f"global_step={global_step} "
+                    f"mean_reward={validation_metrics['mean_episode_total_reward']:.8f} "
+                    "mean_final_value="
+                    f"{validation_metrics['mean_final_after_tax_total_value']:.8f} "
+                    "terminal_liquidation_frequency="
+                    f"{validation_metrics['terminal_liquidation_frequency']:.8f}"
+                )
+
+                if save_best_validation_model:
+                    if best_model_metric not in validation_metrics:
+                        available_metrics = ", ".join(sorted(validation_metrics))
+                        raise KeyError(
+                            f"Best model metric {best_model_metric!r} is not in "
+                            f"validation metrics. Available: {available_metrics}"
+                        )
+                    current_metric_value = float(validation_metrics[best_model_metric])
+                    if _is_better_metric(
+                        current_metric_value,
+                        best_validation_metric_value,
+                        best_model_mode,
+                    ):
+                        best_validation_metric_value = current_metric_value
+                        best_validation_epoch_idx = epoch_idx
+                        best_validation_epoch_number = epoch_number
+                        best_validation_global_train_episode_idx = (
+                            global_train_episode_idx
+                        )
+                        best_validation_global_step = global_step
+                        torch.save(
+                            _checkpoint_payload(
+                                q_net,
+                                target_net,
+                                optimizer,
+                                config,
+                                obs_dim,
+                                num_actions,
+                                expected_reward_version,
+                                global_step,
+                                train_episode_idx,
+                                exploration_random_action_policy,
+                                exploration_action_probabilities_list,
+                                epoch_idx=epoch_idx,
+                                epoch_number=epoch_number,
+                                global_train_episode_idx=global_train_episode_idx,
+                                best_model_metric=best_model_metric,
+                                best_metric_value=best_validation_metric_value,
+                            ),
+                            best_validation_model_path,
+                        )
+                        write_best_validation_summary(
+                            best_validation_summary_path,
+                            best_model_metric=best_model_metric,
+                            best_model_mode=best_model_mode,
+                            best_metric_value=best_validation_metric_value,
+                            best_epoch_idx=epoch_idx,
+                            best_epoch_number=epoch_number,
+                            best_global_train_episode_idx=global_train_episode_idx,
+                            best_global_step=global_step,
+                            model_path=best_validation_model_path,
+                        )
+                        print(
+                            "NEW BEST VALIDATION MODEL saved "
+                            f"metric={best_model_metric} "
+                            f"value={best_validation_metric_value:.8f}"
+                        )
 
     target_net.load_state_dict(q_net.state_dict())
     final_checkpoint_path = (
-        checkpoint_dir / f"checkpoint_episode_{len(train_ids):04d}.pt"
+        checkpoint_dir / f"checkpoint_global_episode_{global_train_episode_idx:06d}.pt"
     )
     torch.save(
         _checkpoint_payload(
@@ -1089,6 +1600,13 @@ def train_full(config: dict) -> dict:
             expected_reward_version,
             global_step,
             len(train_ids),
+            exploration_random_action_policy,
+            exploration_action_probabilities_list,
+            epoch_idx=num_epochs - 1,
+            epoch_number=num_epochs,
+            global_train_episode_idx=global_train_episode_idx,
+            best_model_metric=best_model_metric,
+            best_metric_value=best_validation_metric_value,
         ),
         final_checkpoint_path,
     )
@@ -1131,16 +1649,36 @@ def train_full(config: dict) -> dict:
         expected_reward_version,
         global_step,
         len(train_ids),
+        exploration_random_action_policy,
+        exploration_action_probabilities_list,
+        epoch_idx=num_epochs - 1,
+        epoch_number=num_epochs,
+        global_train_episode_idx=global_train_episode_idx,
+        best_model_metric=best_model_metric,
+        best_metric_value=best_validation_metric_value,
     )
     torch.save(final_payload, final_model_path)
 
     final_validation = eval_metric_rows[-1] if eval_metric_rows else {}
     summary = {
+        "config_path": _relative_project_path(config_path),
+        "run_name": run_name,
         "reward_version": expected_reward_version,
+        "base_reward_version": base_reward_version,
+        "discount_factor_gamma": gamma,
+        "transaction_penalty_enabled": transaction_penalty_enabled,
+        "lambda_transaction": lambda_transaction,
+        "cooldown_penalty_enabled": cooldown_penalty_enabled,
+        "lambda_cooldown": lambda_cooldown,
+        "cooldown_days": cooldown_days,
+        "tax_profile_name": resolved_tax_profile["profile_name"],
+        "resolved_tax_profile": resolved_tax_profile,
         "num_total_episodes": n_total,
         "num_train_episodes": len(train_ids),
         "num_validation_episodes": len(validation_ids),
         "num_test_episodes": len(test_ids),
+        "num_epochs": num_epochs,
+        "total_training_episode_passes": total_training_episode_passes,
         "obs_dim": obs_dim,
         "num_actions": num_actions,
         "total_environment_steps": global_step,
@@ -1169,34 +1707,67 @@ def train_full(config: dict) -> dict:
         "final_validation_median_episode_reward": final_validation.get(
             "median_episode_total_reward"
         ),
+        "final_validation_mean_final_after_tax_total_value": final_validation.get(
+            "mean_final_after_tax_total_value"
+        ),
         "final_validation_terminal_liquidation_frequency": final_validation.get(
             "terminal_liquidation_frequency"
         ),
-        "model_path": str(final_model_path.relative_to(PROJECT_ROOT)),
-        "train_metrics_path": str(train_metrics_path.relative_to(PROJECT_ROOT)),
-        "eval_metrics_path": str(eval_metrics_path.relative_to(PROJECT_ROOT)),
-        "train_episode_rollouts_path": str(
-            train_rollouts_path.relative_to(PROJECT_ROOT)
+        "best_model_metric": best_model_metric,
+        "best_model_mode": best_model_mode,
+        "best_validation_metric_value": best_validation_metric_value,
+        "best_validation_epoch_number": best_validation_epoch_number,
+        "best_validation_global_train_episode_idx": (
+            best_validation_global_train_episode_idx
         ),
-        "validation_episode_rollouts_path": str(
-            validation_rollouts_path.relative_to(PROJECT_ROOT)
+        "final_model_path": _relative_project_path(final_model_path),
+        "best_validation_model_path": (
+            _relative_project_path(best_validation_model_path)
+            if best_validation_metric_value is not None
+            else None
         ),
-        "episode_splits_path": str(episode_splits_path.relative_to(PROJECT_ROOT)),
+        "train_metrics_path": _relative_project_path(train_metrics_path),
+        "eval_metrics_path": _relative_project_path(eval_metrics_path),
+        "train_episode_rollouts_path": _relative_project_path(train_rollouts_path),
+        "validation_episode_rollouts_path": _relative_project_path(
+            validation_rollouts_path
+        ),
+        "episode_splits_path": _relative_project_path(episode_splits_path),
+        "exploration_random_action_policy": exploration_random_action_policy,
+        "exploration_action_probabilities": exploration_action_probabilities_list,
     }
     with summary_path.open("w", encoding="utf-8") as handle:
-        handle.write("DQN Reward A Full Training Summary\n")
+        handle.write("DQN Full Training Summary\n")
         for key, value in summary.items():
             handle.write(f"{key}: {value}\n")
 
-    summary["config_used_path"] = str(config_used_path.relative_to(PROJECT_ROOT))
-    summary["summary_path"] = str(summary_path.relative_to(PROJECT_ROOT))
+    summary["config_used_path"] = _relative_project_path(config_used_path)
+    summary["summary_path"] = _relative_project_path(summary_path)
     return summary
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Train a DQN using the environment reward from a YAML config."
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=CONFIG_PATH,
+        help=(
+            "Training config path. Defaults to "
+            f"{_relative_project_path(CONFIG_PATH)}."
+        ),
+    )
+    return parser.parse_args()
+
+
 def main() -> None:
-    config = load_yaml(CONFIG_PATH)
-    train_full(config)
-    print("DQN REWARD A FULL TRAINING COMPLETE")
+    args = parse_args()
+    config_path = _project_path(args.config)
+    config = load_yaml(config_path)
+    train_full(config, config_path=config_path)
+    print(f"DQN FULL TRAINING COMPLETE reward_version={config['reward']['version']}")
 
 
 if __name__ == "__main__":

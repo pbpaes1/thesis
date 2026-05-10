@@ -42,6 +42,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config.tax_profiles import resolve_tax_profile_from_config  # noqa: E402
 from src.environment.tax_aware_env import TaxAwareEnv  # noqa: E402
 
 
@@ -168,7 +169,7 @@ def make_env(config: dict) -> TaxAwareEnv:
     schema_path = _project_path(_require(env_config, "state_schema_path"))
     state_columns = load_state_columns(schema_path)
     action_fractions = _require(config, "action_space.action_fractions")
-    tax_config = _require(config, "tax_profile")
+    tax_config = resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
     seed = int(_require(config, "training.seed"))
 
     return TaxAwareEnv(

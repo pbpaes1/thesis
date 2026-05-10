@@ -19,24 +19,30 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config.tax_profiles import load_tax_profile
 from src.environment.tax_aware_env import TaxAwareEnv
 
 
-STANDARD_PROFILE = {
-    "profile_name": "mass_affluent_individual",
-    "short_term_rate": 0.24,
-    "long_term_rate": 0.15,
-    "niit_rate": 0.0,
-    "apply_niit": False,
-}
+TAX_PROFILE_CONFIG_PATH = (
+    PROJECT_ROOT / "configs" / "individual_tax_profiles_v1.yaml"
+)
+STANDARD_PROFILE = load_tax_profile(
+    TAX_PROFILE_CONFIG_PATH,
+    "mass_affluent_individual",
+)
 
-TAX_FREE_PROFILE = {
-    "profile_name": "tax_free",
-    "short_term_rate": 0.0,
-    "long_term_rate": 0.0,
-    "niit_rate": 0.0,
-    "apply_niit": False,
-}
+STANDARD_SHORT_TERM_RATE = float(STANDARD_PROFILE["short_term_rate"])
+STANDARD_LONG_TERM_RATE = float(STANDARD_PROFILE["long_term_rate"]) + (
+    float(STANDARD_PROFILE["niit_rate"])
+    if bool(STANDARD_PROFILE["apply_niit"])
+    else 0.0
+)
+
+
+def _after_tax_increment(pre_tax_increment: float, tax_rate: float) -> float:
+    if pre_tax_increment > 0.0:
+        return float(pre_tax_increment * (1.0 - tax_rate))
+    return float(pre_tax_increment)
 
 
 def approx_equal(a: Any, b: Any, tol: float = 1e-10) -> bool:
@@ -183,22 +189,31 @@ def scenario_immediate_sell() -> None:
         tax_profile=STANDARD_PROFILE,
     )
     _, reset_info = env.reset()
-    assert_approx("initial after-tax value", reset_info["after_tax_total_value"], 0.228)
+    initial_after_tax_value = _after_tax_increment(0.30, STANDARD_SHORT_TERM_RATE)
+    assert_approx(
+        "initial after-tax value",
+        reset_info["after_tax_total_value"],
+        initial_after_tax_value,
+    )
 
     rows = run_actions(env, [1.0])
     print_scenario_summary(name, rows)
     info = rows[0]["info"]
 
     assert_approx("executed fraction", info["action_fraction_executed"], 1.0)
-    assert_approx("applicable tax rate", info["applicable_tax_rate"], 0.24)
+    assert_approx(
+        "applicable tax rate",
+        info["applicable_tax_rate"],
+        STANDARD_SHORT_TERM_RATE,
+    )
     assert_approx("realized pre-tax increment", info["realized_pre_tax_increment"], 0.30)
-    assert_approx("tax paid", info["tax_paid"], 0.072)
+    assert_approx("tax paid", info["tax_paid"], 0.30 * STANDARD_SHORT_TERM_RATE)
     assert_approx(
         "realized after-tax increment",
         info["realized_after_tax_increment"],
-        0.228,
+        initial_after_tax_value,
     )
-    assert_approx("after-tax total value", info["after_tax_total_value"], 0.228)
+    assert_approx("after-tax total value", info["after_tax_total_value"], initial_after_tax_value)
     assert_approx("reward", rows[0]["reward"], 0.0)
     assert_approx("remaining fraction", info["remaining_fraction"], 0.0)
     assert_approx("sold fraction", info["sold_fraction"], 1.0)
@@ -215,7 +230,9 @@ def scenario_safe_waiting_until_long_term() -> None:
         tax_profile=STANDARD_PROFILE,
     )
     _, reset_info = env.reset()
-    assert_approx("initial after-tax value", reset_info["after_tax_total_value"], 0.228)
+    short_term_value = _after_tax_increment(0.30, STANDARD_SHORT_TERM_RATE)
+    long_term_value = _after_tax_increment(0.30, STANDARD_LONG_TERM_RATE)
+    assert_approx("initial after-tax value", reset_info["after_tax_total_value"], short_term_value)
 
     rows = run_actions(env, [0.0, 0.0, 0.0])
     print_scenario_summary(name, rows)
@@ -230,7 +247,11 @@ def scenario_safe_waiting_until_long_term() -> None:
     ]
     assert long_term_rows, "Expected at least one long-term liquidation valuation step."
     first_long_term = long_term_rows[0]
-    assert_approx("first long-term reward", first_long_term["reward"], 0.027)
+    assert_approx(
+        "first long-term reward",
+        first_long_term["reward"],
+        long_term_value - short_term_value,
+    )
     assert_approx(
         "first long-term executed fraction",
         first_long_term["info"]["action_fraction_executed"],
@@ -247,14 +268,28 @@ def scenario_crash_while_waiting() -> None:
         tax_profile=STANDARD_PROFILE,
     )
     _, reset_info = env.reset()
-    assert_approx("initial after-tax value", reset_info["after_tax_total_value"], 0.228)
+    initial_after_tax_value = _after_tax_increment(0.30, STANDARD_SHORT_TERM_RATE)
+    second_after_tax_value = _after_tax_increment(0.25, STANDARD_SHORT_TERM_RATE)
+    assert_approx(
+        "initial after-tax value",
+        reset_info["after_tax_total_value"],
+        initial_after_tax_value,
+    )
 
     rows = run_actions(env, [0.0, 0.0, 0.0])
     print_scenario_summary(name, rows)
 
     assert_approx("step 0 reward", rows[0]["reward"], 0.0)
-    assert_approx("step 1 after-tax value", rows[1]["info"]["after_tax_total_value"], 0.19)
-    assert_approx("step 1 reward", rows[1]["reward"], -0.038)
+    assert_approx(
+        "step 1 after-tax value",
+        rows[1]["info"]["after_tax_total_value"],
+        second_after_tax_value,
+    )
+    assert_approx(
+        "step 1 reward",
+        rows[1]["reward"],
+        second_after_tax_value - initial_after_tax_value,
+    )
     assert any(row["reward"] < 0.0 for row in rows), "Expected at least one negative reward."
 
     final_info = rows[-1]["info"]
@@ -282,7 +317,17 @@ def scenario_partial_exit_then_wait() -> None:
         tax_profile=STANDARD_PROFILE,
     )
     _, reset_info = env.reset()
-    assert_approx("initial after-tax value", reset_info["after_tax_total_value"], 0.228)
+    initial_after_tax_value = _after_tax_increment(0.30, STANDARD_SHORT_TERM_RATE)
+    first_sale_after_tax = _after_tax_increment(0.15, STANDARD_SHORT_TERM_RATE)
+    hold_remaining_value = _after_tax_increment(0.175, STANDARD_SHORT_TERM_RATE)
+    final_realized_after_tax = _after_tax_increment(0.175, STANDARD_LONG_TERM_RATE)
+    hold_total_value = first_sale_after_tax + hold_remaining_value
+    final_total_value = first_sale_after_tax + final_realized_after_tax
+    assert_approx(
+        "initial after-tax value",
+        reset_info["after_tax_total_value"],
+        initial_after_tax_value,
+    )
 
     rows = run_actions(env, [0.5, 0.0, 0.5])
     print_scenario_summary(name, rows)
@@ -291,29 +336,37 @@ def scenario_partial_exit_then_wait() -> None:
     second = rows[1]["info"]
     final = rows[2]["info"]
 
-    assert_approx("first sale realized after-tax", first["realized_after_tax_increment"], 0.114)
-    assert_approx("first sale remaining liquidation", first["after_tax_liquidation_value_remaining"], 0.114)
-    assert_approx("first sale total", first["after_tax_total_value"], 0.228)
+    assert_approx(
+        "first sale realized after-tax",
+        first["realized_after_tax_increment"],
+        first_sale_after_tax,
+    )
+    assert_approx(
+        "first sale remaining liquidation",
+        first["after_tax_liquidation_value_remaining"],
+        first_sale_after_tax,
+    )
+    assert_approx("first sale total", first["after_tax_total_value"], initial_after_tax_value)
     assert_approx("first sale reward", rows[0]["reward"], 0.0)
 
-    assert_approx("hold cumulative realized", second["cum_realized_after_tax_pnl"], 0.114)
-    assert_approx("hold remaining liquidation", second["after_tax_liquidation_value_remaining"], 0.133)
-    assert_approx("hold total", second["after_tax_total_value"], 0.247)
-    assert_approx("hold reward", rows[1]["reward"], 0.019)
+    assert_approx("hold cumulative realized", second["cum_realized_after_tax_pnl"], first_sale_after_tax)
+    assert_approx("hold remaining liquidation", second["after_tax_liquidation_value_remaining"], hold_remaining_value)
+    assert_approx("hold total", second["after_tax_total_value"], hold_total_value)
+    assert_approx("hold reward", rows[1]["reward"], hold_total_value - initial_after_tax_value)
     assert rows[1]["reward"] > 0.0
 
     assert final["tax_regime"] == "long_term"
     assert_approx("final executed fraction", final["action_fraction_executed"], 0.5)
-    assert_approx("final tax rate", final["applicable_tax_rate"], 0.15)
+    assert_approx("final tax rate", final["applicable_tax_rate"], STANDARD_LONG_TERM_RATE)
     assert_approx(
         "final realized after-tax increment",
         final["realized_after_tax_increment"],
-        0.14875,
+        final_realized_after_tax,
     )
-    assert_approx("final cumulative realized", final["cum_realized_after_tax_pnl"], 0.26275)
+    assert_approx("final cumulative realized", final["cum_realized_after_tax_pnl"], final_total_value)
     assert_approx("final remaining fraction", final["remaining_fraction"], 0.0)
-    assert_approx("final total", final["after_tax_total_value"], 0.26275)
-    assert_approx("final reward", rows[2]["reward"], 0.01575)
+    assert_approx("final total", final["after_tax_total_value"], final_total_value)
+    assert_approx("final reward", rows[2]["reward"], final_total_value - hold_total_value)
     assert final["terminal_liquidation_executed"] is False
 
 
@@ -355,7 +408,13 @@ def scenario_terminal_liquidation_uses_final_row_pnl() -> None:
         tax_profile=STANDARD_PROFILE,
     )
     _, reset_info = env.reset()
-    assert_approx("initial after-tax value", reset_info["after_tax_total_value"], 0.076)
+    initial_after_tax_value = _after_tax_increment(0.10, STANDARD_SHORT_TERM_RATE)
+    terminal_after_tax_value = _after_tax_increment(0.30, STANDARD_LONG_TERM_RATE)
+    assert_approx(
+        "initial after-tax value",
+        reset_info["after_tax_total_value"],
+        initial_after_tax_value,
+    )
 
     rows = run_actions(env, [0.0, 0.0])
     print_scenario_summary(name, rows)
@@ -370,20 +429,28 @@ def scenario_terminal_liquidation_uses_final_row_pnl() -> None:
         final["terminal_liquidation_full_position_pnl"],
         0.30,
     )
-    assert_approx("terminal tax rate", final["terminal_liquidation_tax_rate"], 0.15)
+    assert_approx(
+        "terminal tax rate",
+        final["terminal_liquidation_tax_rate"],
+        STANDARD_LONG_TERM_RATE,
+    )
     assert_approx(
         "terminal pre-tax increment",
         final["terminal_liquidation_pre_tax_increment"],
         0.30,
     )
-    assert_approx("terminal tax paid", final["terminal_liquidation_tax_paid"], 0.045)
+    assert_approx(
+        "terminal tax paid",
+        final["terminal_liquidation_tax_paid"],
+        0.30 * STANDARD_LONG_TERM_RATE,
+    )
     assert_approx(
         "terminal after-tax increment",
         final["terminal_liquidation_after_tax_increment"],
-        0.255,
+        terminal_after_tax_value,
     )
-    assert_approx("final after-tax total value", final["after_tax_total_value"], 0.255)
-    assert_approx("final reward", rows[-1]["reward"], 0.179)
+    assert_approx("final after-tax total value", final["after_tax_total_value"], terminal_after_tax_value)
+    assert_approx("final reward", rows[-1]["reward"], terminal_after_tax_value - initial_after_tax_value)
 
 
 def main() -> None:

@@ -1,8 +1,8 @@
 run:
-  name: train_reward_a_v2_full
+  name: train_reward_a_v3_full
   phase: build_and_train
-  description: Reward A full training run with hold-biased exploration.
-  status: ready_for_debug_training
+  description: Reward A v3 full training run with hold-biased exploration, multi-epoch training, and best validation checkpoint selection.
+  status: ready_for_full_training
 
 environment:
   class_path: src.environment.tax_aware_env.TaxAwareEnv
@@ -65,11 +65,11 @@ action_space:
 exploration:
   random_action_policy: hold_biased
   action_probabilities:
-    - 0.50  # action 0: hold
-    - 0.20  # action 1: sell 25%
-    - 0.15  # action 2: sell 50%
-    - 0.10  # action 3: sell 75%
-    - 0.05  # action 4: sell 100%
+    - 0.50
+    - 0.20
+    - 0.15
+    - 0.10
+    - 0.05
 
 splits:
   method: chronological_by_episode
@@ -101,7 +101,8 @@ algorithm:
 training:
   seed: 42
   device: auto
-  debug_first: true
+  debug_first: false
+  num_epochs: 3
   debug:
     episodes: 20
     max_steps_per_episode: null
@@ -115,13 +116,17 @@ training:
   epsilon_schedule:
     start: 1.0
     end: 0.05
-    decay_steps: 10000
+    decay_steps: 145000
   gradient_clip_norm: 10.0
-  checkpoint_frequency_episodes: 50
+  checkpoint_frequency_episodes: 500
+  save_best_validation_model: true
+  best_model_metric: mean_final_after_tax_total_value
+  best_model_mode: max
 
 evaluation:
   evaluate_during_training: true
-  evaluation_frequency_episodes: 25
+  evaluation_frequency_episodes: 500
+  max_eval_episodes: 500
   deterministic_policy: true
   benchmark_policies:
     - hold_to_terminal
@@ -144,7 +149,7 @@ evaluation:
     reward_version_matches_config: true
 
 logging:
-  output_dir: runs/train_reward_a_v2_full
+  output_dir: runs/train_reward_a_v3_full
   save_config_copy: true
   save_training_metrics: true
   save_episode_rollouts: true
@@ -152,11 +157,12 @@ logging:
   save_final_model: true
   tensorboard:
     enabled: false
-    log_dir: runs/train_reward_a_v1/tensorboard
+    log_dir: runs/train_reward_a_v3_full/tensorboard
   csv_logs:
-    train_metrics: runs/train_reward_a_v1/train_metrics.csv
-    eval_metrics: runs/train_reward_a_v1/eval_metrics.csv
-    episode_rollouts: runs/train_reward_a_v1/episode_rollouts.csv
+    train_metrics: runs/train_reward_a_v3_full/train_metrics.csv
+    eval_metrics: runs/train_reward_a_v3_full/eval_metrics.csv
+    train_episode_rollouts: runs/train_reward_a_v3_full/train_episode_rollouts.csv
+    validation_episode_rollouts: runs/train_reward_a_v3_full/validation_episode_rollouts.csv
 
 reproducibility:
   python_seed: 42
@@ -167,7 +173,6 @@ reproducibility:
   record_config_hash: true
 
 notes:
-  - Reward A is frozen for the first training run.
+  - Reward A is frozen for this training run.
   - Reward B and Reward C are deferred until after baseline Reward A behavior is evaluated.
-  - This config is for training preparation only; it should not trigger training by itself.
-  - The first run should be a small debug run before a full training run.
+  - This config increases training depth and model selection without changing the reward function.

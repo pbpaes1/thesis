@@ -1,7 +1,8 @@
-"""Evaluate Reward A trained DQN and simple baseline liquidation policies."""
+"""Evaluate trained DQN and simple baseline liquidation policies."""
 
 from __future__ import annotations
 
+import argparse
 import json
 import math
 import sys
@@ -33,16 +34,27 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.environment.tax_aware_env import TaxAwareEnv  # noqa: E402
+from src.config.tax_profiles import resolve_tax_profile_from_config  # noqa: E402
+from src.environment.tax_aware_env import (  # noqa: E402
+    REWARD_A_VERSION,
+    REWARD_C_LITE_VERSION,
+    REWARD_C_LITE_V2_VERSION,
+    TaxAwareEnv,
+)
 
 
-CONFIG_PATH = PROJECT_ROOT / "configs" / "train_reward_a_v1.yaml"
+CONFIG_PATH = PROJECT_ROOT / "configs" / "train_reward_a_v3.yaml"
 REWARD_ASSERT_TOL = 1e-8
 MAX_VALIDATION_EPISODES = None
 MAX_TEST_EPISODES = None
 
 POLICY_NAMES = [
     "trained_dqn_greedy",
+    "trained_dqn_thresholded_margin_0p001",
+    "trained_dqn_thresholded_margin_0p005",
+    "trained_dqn_thresholded_margin_0p010",
+    "trained_dqn_thresholded_margin_0p015",
+    "trained_dqn_thresholded_margin_0p020",
     "hold_to_terminal",
     "sell_immediately",
     "sell_half_then_hold",
@@ -50,27 +62,51 @@ POLICY_NAMES = [
     "random_policy",
 ]
 
+THRESHOLDED_DQN_MARGINS = {
+    "trained_dqn_thresholded_margin_0p001": 0.001,
+    "trained_dqn_thresholded_margin_0p005": 0.005,
+    "trained_dqn_thresholded_margin_0p010": 0.010,
+    "trained_dqn_thresholded_margin_0p015": 0.015,
+    "trained_dqn_thresholded_margin_0p020": 0.020,
+}
+
 STEP_ROLLOUT_COLUMNS = [
     "split",
     "policy_name",
     "episode_id",
     "step_in_episode",
     "date",
+    "tax_transition_date",
     "action_idx",
     "action_fraction_requested",
     "action_fraction_executed",
     "reward",
     "reward_A",
+    "reward_C_lite",
+    "reward_C_lite_v2",
+    "transaction_penalty",
+    "transaction_penalty_applied",
+    "cooldown_penalty",
+    "cooldown_penalty_applied",
+    "days_since_last_sale",
+    "sale_count",
+    "last_sale_date_before_step",
+    "last_sale_date_after_step",
     "after_tax_total_value",
     "previous_after_tax_total_value",
+    "realized_pre_tax_increment",
+    "tax_paid",
     "realized_after_tax_increment",
     "cum_realized_after_tax_pnl",
     "after_tax_liquidation_value_remaining",
     "sold_fraction",
     "remaining_fraction",
     "tax_regime",
+    "applicable_tax_rate",
     "after_tax_liquidation_tax_regime",
+    "is_automatic_terminal_liquidation",
     "terminal_liquidation_executed",
+    "terminal_liquidation_tax_paid",
     "done",
 ]
 
@@ -79,6 +115,15 @@ EPISODE_METRIC_COLUMNS = [
     "policy_name",
     "episode_id",
     "episode_total_reward",
+    "episode_total_reward_A",
+    "episode_total_reward_C_lite",
+    "episode_total_reward_C_lite_v2",
+    "episode_total_transaction_penalty",
+    "episode_total_cooldown_penalty",
+    "transaction_penalty_frequency",
+    "mean_transaction_penalty_when_applied",
+    "cooldown_penalty_frequency",
+    "mean_cooldown_penalty_when_applied",
     "episode_initial_after_tax_total_value",
     "episode_final_after_tax_total_value",
     "episode_realized_after_tax_pnl",
@@ -91,6 +136,22 @@ EPISODE_METRIC_COLUMNS = [
     "first_cut_step",
     "first_cut_date",
     "first_cut_fraction_executed",
+    "days_to_first_sale",
+    "steps_to_first_sale",
+    "first_sale_date",
+    "first_sale_before_tax_transition",
+    "pct_episode_position_sold_short_term",
+    "pct_episode_position_sold_long_term",
+    "total_position_sold_short_term",
+    "total_position_sold_long_term",
+    "mean_effective_tax_rate_on_sales",
+    "total_tax_paid",
+    "total_transaction_penalty",
+    "total_cooldown_penalty",
+    "num_discretionary_sales",
+    "num_cooldown_penalized_sales",
+    "sold_before_tax_transition_flag",
+    "reached_tax_transition_before_first_sale_flag",
 ]
 
 SUMMARY_COLUMNS = [
@@ -98,6 +159,11 @@ SUMMARY_COLUMNS = [
     "policy_name",
     "num_episodes",
     "mean_episode_total_reward",
+    "mean_episode_total_reward_A",
+    "mean_episode_total_reward_C_lite",
+    "mean_episode_total_reward_C_lite_v2",
+    "mean_episode_total_transaction_penalty",
+    "mean_episode_total_cooldown_penalty",
     "median_episode_total_reward",
     "std_episode_total_reward",
     "min_episode_total_reward",
@@ -113,9 +179,25 @@ SUMMARY_COLUMNS = [
     "terminal_liquidation_frequency",
     "full_liquidation_frequency",
     "cut_frequency",
+    "sell_immediately_frequency",
     "mean_first_cut_step",
     "median_first_cut_step",
     "mean_first_cut_fraction_executed",
+    "average_days_to_first_sale",
+    "median_days_to_first_sale",
+    "average_steps_to_first_sale",
+    "pct_episodes_with_first_sale_before_tax_transition",
+    "pct_episodes_sold_before_tax_transition",
+    "mean_pct_position_sold_short_term",
+    "mean_pct_position_sold_long_term",
+    "mean_effective_tax_rate",
+    "mean_total_tax_paid",
+    "mean_transaction_penalty",
+    "mean_cooldown_penalty",
+    "mean_num_discretionary_sales",
+    "mean_num_cooldown_penalized_sales",
+    "mean_excess_value_vs_sell_immediately",
+    "mean_excess_value_vs_hold_to_terminal",
 ]
 
 SUMMARY_CONTEXT: dict[str, Any] = {}
@@ -146,26 +228,29 @@ def _resolve_device(device_config: str) -> torch.device:
     return device
 
 
-def _validate_reward_a_config(config: dict) -> None:
+def _validate_reward_config(config: dict) -> None:
     reward_version = str(_require(config, "reward.version"))
     expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
-    if reward_version != "A_after_tax_total_value_change":
-        raise ValueError(
-            "This evaluator is frozen to Reward A, expected "
-            "'A_after_tax_total_value_change', got "
-            f"{reward_version!r}."
-        )
     if expected_reward_version != reward_version:
         raise ValueError(
             "Config reward.version and reward.expected_info_reward_version "
             f"must match, got {reward_version!r} and {expected_reward_version!r}."
         )
+    supported_reward_versions = {
+        REWARD_A_VERSION,
+        REWARD_C_LITE_VERSION,
+        REWARD_C_LITE_V2_VERSION,
+    }
+    if reward_version not in supported_reward_versions:
+        raise ValueError(
+            f"Unsupported reward.version={reward_version!r}; expected "
+            f"one of {sorted(supported_reward_versions)}."
+        )
     if not bool(_require(config, "reward.use_environment_reward")):
-        raise ValueError("Reward A evaluation requires use_environment_reward=true.")
+        raise ValueError("Baseline evaluation requires use_environment_reward=true.")
 
     excluded_flags = [
         "reward.use_drawdown_penalty",
-        "reward.use_cooldown_penalty",
         "reward.use_explicit_tax_saving_bonus",
         "reward.use_reward_clipping",
         "reward.use_reward_normalization",
@@ -173,9 +258,64 @@ def _validate_reward_a_config(config: dict) -> None:
     enabled_flags = [flag for flag in excluded_flags if bool(_require(config, flag))]
     if enabled_flags:
         raise ValueError(
-            "Reward A baseline evaluation must not enable deferred reward options: "
+            "Baseline evaluation must not enable unsupported reward options: "
             f"{enabled_flags}"
         )
+    use_cooldown_penalty = bool(_require(config, "reward.use_cooldown_penalty"))
+    use_transaction_penalty = bool(
+        config.get("reward", {}).get("use_transaction_penalty", False)
+    )
+    if reward_version == REWARD_A_VERSION and (
+        use_cooldown_penalty or use_transaction_penalty
+    ):
+        raise ValueError(
+            "Reward A evaluation requires transaction and cooldown penalties off."
+        )
+    if reward_version in {REWARD_C_LITE_VERSION, REWARD_C_LITE_V2_VERSION}:
+        if str(_require(config, "reward.base_reward_version")) != REWARD_A_VERSION:
+            raise ValueError("Reward C-lite requires base_reward_version=Reward A.")
+        if not use_cooldown_penalty:
+            raise ValueError("Reward C-lite requires use_cooldown_penalty=true.")
+        cooldown_config = _require(config, "reward.cooldown_penalty")
+        if not bool(_require(cooldown_config, "enabled")):
+            raise ValueError("Reward C-lite requires cooldown_penalty.enabled=true.")
+        if int(_require(cooldown_config, "cooldown_days")) <= 0:
+            raise ValueError("cooldown_days must be positive.")
+        if float(_require(cooldown_config, "lambda_cooldown")) < 0.0:
+            raise ValueError("lambda_cooldown must be non-negative.")
+        if bool(_require(cooldown_config, "penalize_first_sale")):
+            raise ValueError("Reward C-lite must not penalize the first sale.")
+        if bool(
+            cooldown_config.get("apply_to_automatic_terminal_liquidation", False)
+        ):
+            raise ValueError(
+                "Reward C-lite must not penalize automatic terminal liquidation."
+            )
+    if reward_version == REWARD_C_LITE_VERSION and use_transaction_penalty:
+        raise ValueError("Reward C-lite v1 requires use_transaction_penalty=false.")
+    if reward_version == REWARD_C_LITE_V2_VERSION:
+        if not use_transaction_penalty:
+            raise ValueError("Reward C-lite v2 requires use_transaction_penalty=true.")
+        transaction_config = _require(config, "reward.transaction_penalty")
+        if not bool(_require(transaction_config, "enabled")):
+            raise ValueError(
+                "Reward C-lite v2 requires transaction_penalty.enabled=true."
+            )
+        if float(_require(transaction_config, "lambda_transaction")) < 0.0:
+            raise ValueError("lambda_transaction must be non-negative.")
+        if not bool(_require(transaction_config, "scale_by_executed_fraction")):
+            raise ValueError(
+                "Reward C-lite v2 requires transaction penalties to scale by "
+                "executed fraction."
+            )
+        if not bool(_require(transaction_config, "apply_to_first_sale")):
+            raise ValueError("Reward C-lite v2 must penalize the first sale.")
+        if bool(_require(transaction_config, "apply_to_automatic_terminal_liquidation")):
+            raise ValueError(
+                "Reward C-lite v2 must not penalize automatic terminal liquidation."
+            )
+
+    resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
 
 
 def load_yaml(path: Path) -> dict:
@@ -222,7 +362,7 @@ def make_env(config: dict) -> TaxAwareEnv:
     schema_path = resolve_project_path(_require(env_config, "state_schema_path"))
     state_columns = load_state_columns(schema_path)
     action_fractions = _require(config, "action_space.action_fractions")
-    tax_config = _require(config, "tax_profile")
+    tax_config = resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
     seed = int(_require(config, "training.seed"))
 
     return TaxAwareEnv(
@@ -230,8 +370,64 @@ def make_env(config: dict) -> TaxAwareEnv:
         state_columns=state_columns,
         action_fractions=action_fractions,
         tax_config=tax_config,
+        reward_config=config.get("reward"),
         seed=seed,
     )
+
+
+def assert_tax_profiles_match(
+    saved_tax_profile: dict[str, Any],
+    current_tax_profile: dict[str, Any],
+    *,
+    artifact_path: Path,
+) -> None:
+    fields = (
+        "profile_name",
+        "short_term_rate",
+        "long_term_rate",
+        "niit_rate",
+        "apply_niit",
+    )
+    mismatches: list[str] = []
+    for field in fields:
+        saved_value = saved_tax_profile.get(field)
+        current_value = current_tax_profile.get(field)
+        if saved_value is None or current_value is None:
+            if saved_value != current_value:
+                mismatches.append(
+                    f"{field}: saved={saved_value!r}, current={current_value!r}"
+                )
+            continue
+        if isinstance(current_value, bool):
+            if not isinstance(saved_value, bool) or saved_value != current_value:
+                mismatches.append(
+                    f"{field}: saved={saved_value!r}, current={current_value!r}"
+                )
+        elif isinstance(current_value, (int, float)):
+            try:
+                saved_number = float(saved_value)
+                current_number = float(current_value)
+            except (TypeError, ValueError):
+                mismatches.append(
+                    f"{field}: saved={saved_value!r}, current={current_value!r}"
+                )
+                continue
+            if not approx_equal(saved_number, current_number):
+                mismatches.append(
+                    f"{field}: saved={saved_value!r}, current={current_value!r}"
+                )
+        elif saved_value != current_value:
+            mismatches.append(
+                f"{field}: saved={saved_value!r}, current={current_value!r}"
+            )
+
+    if mismatches:
+        mismatch_text = "; ".join(mismatches)
+        raise ValueError(
+            "Trained model tax profile does not match the current evaluation "
+            f"config for {artifact_path}: {mismatch_text}. Rerun training before "
+            "evaluating baselines."
+        )
 
 
 def approx_equal(a: float, b: float, tol: float = REWARD_ASSERT_TOL) -> bool:
@@ -248,9 +444,17 @@ def assert_reward_info(
         f"expected {expected_reward_version!r}."
     )
     assert approx_equal(reward, info["reward"]), "reward != info['reward']"
-    assert approx_equal(reward, info["reward_A"]), "reward != info['reward_A']"
+    reward_A = float(info["reward_A"])
+    transaction_penalty = float(info.get("transaction_penalty", 0.0) or 0.0)
+    cooldown_penalty = float(info.get("cooldown_penalty", 0.0) or 0.0)
+    reward_C_lite = info.get("reward_C_lite")
+    if reward_C_lite is not None:
+        reward_C_lite = float(reward_C_lite)
+    reward_C_lite_v2 = info.get("reward_C_lite_v2")
+    if reward_C_lite_v2 is not None:
+        reward_C_lite_v2 = float(reward_C_lite_v2)
     assert approx_equal(
-        reward,
+        reward_A,
         info["after_tax_total_value"] - info["previous_after_tax_total_value"],
     ), "Reward A identity failed."
     assert approx_equal(
@@ -258,6 +462,54 @@ def assert_reward_info(
         info["cum_realized_after_tax_pnl"]
         + info["after_tax_liquidation_value_remaining"],
     ), "After-tax total value decomposition failed."
+    if expected_reward_version == REWARD_A_VERSION:
+        assert approx_equal(reward, reward_A), "Reward A run returned non-A reward."
+        assert approx_equal(transaction_penalty, 0.0), (
+            "Reward A run produced a transaction penalty."
+        )
+        assert approx_equal(cooldown_penalty, 0.0), (
+            "Reward A run produced a cooldown penalty."
+        )
+        if reward_C_lite is not None:
+            assert approx_equal(reward_C_lite, reward_A), (
+                "Reward A run has inconsistent reward_C_lite alias."
+            )
+        if reward_C_lite_v2 is not None:
+            assert approx_equal(reward_C_lite_v2, reward_A), (
+                "Reward A run has inconsistent reward_C_lite_v2 alias."
+            )
+    elif expected_reward_version == REWARD_C_LITE_VERSION:
+        assert reward_C_lite is not None, "Reward C-lite missing info['reward_C_lite']."
+        assert approx_equal(transaction_penalty, 0.0), (
+            "Reward C-lite v1 run produced a transaction penalty."
+        )
+        assert approx_equal(reward, reward_C_lite), (
+            "Reward C-lite run returned non-C-lite reward."
+        )
+        assert approx_equal(reward_C_lite, reward_A - cooldown_penalty), (
+            "Reward C-lite identity failed."
+        )
+        if reward_C_lite_v2 is not None:
+            assert approx_equal(reward_C_lite_v2, reward_A - cooldown_penalty), (
+                "Reward C-lite v1 has inconsistent reward_C_lite_v2 alias."
+            )
+    elif expected_reward_version == REWARD_C_LITE_V2_VERSION:
+        assert reward_C_lite is not None, "Reward C-lite v2 missing reward_C_lite."
+        assert reward_C_lite_v2 is not None, (
+            "Reward C-lite v2 missing info['reward_C_lite_v2']."
+        )
+        assert approx_equal(reward, reward_C_lite_v2), (
+            "Reward C-lite v2 run returned non-v2 reward."
+        )
+        assert approx_equal(reward_C_lite, reward_A - cooldown_penalty), (
+            "Reward C-lite v2 has inconsistent reward_C_lite diagnostic."
+        )
+        assert approx_equal(
+            reward_C_lite_v2,
+            reward_A - transaction_penalty - cooldown_penalty,
+        ), "Reward C-lite v2 identity failed."
+    else:
+        raise AssertionError(f"Unsupported expected reward version: {expected_reward_version}")
     assert np.isfinite(reward), "Reward is not finite."
 
 
@@ -365,6 +617,31 @@ def load_trained_q_network(
         "Saved num_actions="
         f"{checkpoint['num_actions']}; current num_actions={num_actions}."
     )
+    current_tax_profile = resolve_tax_profile_from_config(
+        config,
+        base_dir=PROJECT_ROOT,
+    )
+    saved_tax_profile = checkpoint.get("resolved_tax_profile")
+    if saved_tax_profile is None:
+        saved_config = checkpoint.get("config")
+        if not isinstance(saved_config, dict):
+            raise ValueError(
+                "Model artifact does not include a saved tax profile or config: "
+                f"{model_path}"
+            )
+        saved_tax_profile = resolve_tax_profile_from_config(
+            saved_config,
+            base_dir=PROJECT_ROOT,
+        )
+    if not isinstance(saved_tax_profile, dict):
+        raise ValueError(
+            f"Model artifact resolved_tax_profile must be a mapping: {model_path}"
+        )
+    assert_tax_profiles_match(
+        saved_tax_profile=saved_tax_profile,
+        current_tax_profile=current_tax_profile,
+        artifact_path=model_path,
+    )
 
     q_net.load_state_dict(checkpoint["model_state_dict"])
     q_net.eval()
@@ -402,6 +679,55 @@ def select_dqn_greedy_action(
         return int(torch.argmax(q_values, dim=1).item())
 
 
+def threshold_margin_for_policy(policy_name: str) -> float | None:
+    if policy_name in THRESHOLDED_DQN_MARGINS:
+        return THRESHOLDED_DQN_MARGINS[policy_name]
+    if policy_name.startswith("trained_dqn_thresholded"):
+        known = ", ".join(sorted(THRESHOLDED_DQN_MARGINS))
+        raise ValueError(
+            f"Unknown thresholded DQN policy {policy_name!r}. Known policies: {known}"
+        )
+    return None
+
+
+def select_dqn_thresholded_greedy_action(
+    q_net: QNetwork,
+    obs: np.ndarray,
+    num_actions: int,
+    device: torch.device,
+    env: TaxAwareEnv,
+    margin: float,
+) -> int:
+    if margin < 0.0:
+        raise ValueError(f"Threshold margin must be non-negative, got {margin}.")
+
+    with torch.no_grad():
+        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
+        q_values_tensor = q_net(obs_tensor)
+        if q_values_tensor.shape != (1, num_actions):
+            raise AssertionError(
+                f"QNetwork output shape {tuple(q_values_tensor.shape)} does not match "
+                f"(1, {num_actions})."
+            )
+        if not torch.isfinite(q_values_tensor).all():
+            raise AssertionError("Q-values contain NaN or infinite values.")
+
+        q_values = q_values_tensor.squeeze(0).detach().cpu().numpy()
+
+    hold_idx = action_index_for_fraction(env, 0.0)
+    sell_indices = [idx for idx in range(num_actions) if idx != hold_idx]
+    if not sell_indices:
+        raise ValueError("Thresholded greedy policy requires at least one sell action.")
+
+    best_sell_idx = max(sell_indices, key=lambda idx: float(q_values[idx]))
+    hold_q = float(q_values[hold_idx])
+    best_sell_q = float(q_values[best_sell_idx])
+
+    if best_sell_q > hold_q + float(margin):
+        return int(best_sell_idx)
+    return int(hold_idx)
+
+
 def baseline_action_fraction(
     policy_name: str,
     step_idx: int,
@@ -435,8 +761,11 @@ def evaluate_policy_on_episodes(
 ) -> tuple[list[dict], list[dict]]:
     if policy_name not in POLICY_NAMES:
         raise ValueError(f"Unknown policy_name={policy_name!r}.")
-    if policy_name == "trained_dqn_greedy" and q_net is None:
-        raise ValueError("trained_dqn_greedy requires a loaded QNetwork.")
+    threshold_margin = threshold_margin_for_policy(policy_name)
+    if (
+        policy_name == "trained_dqn_greedy" or threshold_margin is not None
+    ) and q_net is None:
+        raise ValueError(f"{policy_name} requires a loaded QNetwork.")
 
     obs_dim = len(env.state_columns)
     num_actions = len(env.action_fractions)
@@ -458,6 +787,15 @@ def evaluate_policy_on_episodes(
         episode_initial_after_tax_total_value = float(
             reset_info["after_tax_total_value"]
         )
+        episode_start_date = pd.to_datetime(reset_info["date"], errors="coerce")
+        episode_tax_transition_date = pd.to_datetime(
+            reset_info["tax_transition_date"],
+            errors="coerce",
+        )
+        if pd.isna(episode_start_date) or pd.isna(episode_tax_transition_date):
+            raise ValueError(
+                f"Invalid episode date or tax_transition_date for episode_id={episode_id}."
+            )
         if not np.isfinite(episode_initial_after_tax_total_value):
             raise AssertionError(
                 f"Initial after-tax total value is not finite for episode_id={episode_id}."
@@ -466,6 +804,22 @@ def evaluate_policy_on_episodes(
         done = False
         step_in_episode = 0
         episode_total_reward = 0.0
+        episode_total_reward_A = 0.0
+        episode_total_reward_C_lite = 0.0
+        episode_total_reward_C_lite_v2 = 0.0
+        episode_total_transaction_penalty = 0.0
+        episode_total_cooldown_penalty = 0.0
+        transaction_penalty_steps = 0
+        transaction_penalties_applied: list[float] = []
+        cooldown_penalty_steps = 0
+        cooldown_penalties_applied: list[float] = []
+        total_position_sold_short_term = 0.0
+        total_position_sold_long_term = 0.0
+        total_tax_paid = 0.0
+        total_discretionary_sale_tax_paid = 0.0
+        total_positive_discretionary_sale_pre_tax = 0.0
+        num_discretionary_sales = 0
+        num_cooldown_penalized_sales = 0
         if env._current_episode_df is None:
             raise RuntimeError("Environment did not set _current_episode_df on reset.")
         max_steps = len(env._current_episode_df) + 5
@@ -489,6 +843,15 @@ def evaluate_policy_on_episodes(
                     obs=obs,
                     num_actions=num_actions,
                     device=device,
+                )
+            elif threshold_margin is not None:
+                action_idx = select_dqn_thresholded_greedy_action(
+                    q_net=q_net,
+                    obs=obs,
+                    num_actions=num_actions,
+                    device=device,
+                    env=env,
+                    margin=threshold_margin,
                 )
             else:
                 action_fraction = baseline_action_fraction(
@@ -522,11 +885,51 @@ def evaluate_policy_on_episodes(
                 )
 
             action_fraction_executed = float(info["action_fraction_executed"])
+            step_reward_A = float(info.get("reward_A", reward))
+            step_reward_C_lite = float(info.get("reward_C_lite", step_reward_A))
+            step_reward_C_lite_v2 = float(
+                info.get("reward_C_lite_v2", step_reward_C_lite)
+            )
+            step_transaction_penalty = float(
+                info.get("transaction_penalty", 0.0) or 0.0
+            )
+            step_transaction_applied = bool(
+                info.get("transaction_penalty_applied", False)
+            )
+            step_cooldown_penalty = float(info.get("cooldown_penalty", 0.0) or 0.0)
+            step_cooldown_applied = bool(info.get("cooldown_penalty_applied", False))
+            if step_transaction_applied:
+                transaction_penalty_steps += 1
+                transaction_penalties_applied.append(step_transaction_penalty)
+            if step_cooldown_applied:
+                cooldown_penalty_steps += 1
+                cooldown_penalties_applied.append(step_cooldown_penalty)
+                num_cooldown_penalized_sales += 1
             if action_fraction_executed > 0.0 and not episode_cut_occurred:
                 episode_cut_occurred = True
                 first_cut_step = step_in_episode
                 first_cut_date = info.get("date")
                 first_cut_fraction_executed = action_fraction_executed
+            if action_fraction_executed > 0.0:
+                num_discretionary_sales += 1
+                tax_regime = str(info.get("tax_regime"))
+                if tax_regime == "short_term":
+                    total_position_sold_short_term += action_fraction_executed
+                elif tax_regime == "long_term":
+                    total_position_sold_long_term += action_fraction_executed
+                realized_pre_tax_increment = float(
+                    info.get("realized_pre_tax_increment", 0.0) or 0.0
+                )
+                action_tax_paid = float(info.get("tax_paid", 0.0) or 0.0)
+                total_discretionary_sale_tax_paid += action_tax_paid
+                if realized_pre_tax_increment > 0.0:
+                    total_positive_discretionary_sale_pre_tax += (
+                        realized_pre_tax_increment
+                    )
+            total_tax_paid += float(info.get("tax_paid", 0.0) or 0.0)
+            total_tax_paid += float(
+                info.get("terminal_liquidation_tax_paid", 0.0) or 0.0
+            )
 
             step_rollout_rows.append(
                 {
@@ -535,6 +938,7 @@ def evaluate_policy_on_episodes(
                     "episode_id": episode_id,
                     "step_in_episode": step_in_episode,
                     "date": info.get("date"),
+                    "tax_transition_date": info.get("tax_transition_date"),
                     "action_idx": int(action_idx),
                     "action_fraction_requested": info.get(
                         "action_fraction_requested"
@@ -542,10 +946,32 @@ def evaluate_policy_on_episodes(
                     "action_fraction_executed": action_fraction_executed,
                     "reward": float(reward),
                     "reward_A": info.get("reward_A"),
+                    "reward_C_lite": info.get("reward_C_lite"),
+                    "reward_C_lite_v2": info.get("reward_C_lite_v2"),
+                    "transaction_penalty": info.get("transaction_penalty"),
+                    "transaction_penalty_applied": info.get(
+                        "transaction_penalty_applied"
+                    ),
+                    "cooldown_penalty": info.get("cooldown_penalty"),
+                    "cooldown_penalty_applied": info.get(
+                        "cooldown_penalty_applied"
+                    ),
+                    "days_since_last_sale": info.get("days_since_last_sale"),
+                    "sale_count": info.get("sale_count"),
+                    "last_sale_date_before_step": info.get(
+                        "last_sale_date_before_step"
+                    ),
+                    "last_sale_date_after_step": info.get(
+                        "last_sale_date_after_step"
+                    ),
                     "after_tax_total_value": info.get("after_tax_total_value"),
                     "previous_after_tax_total_value": info.get(
                         "previous_after_tax_total_value"
                     ),
+                    "realized_pre_tax_increment": info.get(
+                        "realized_pre_tax_increment"
+                    ),
+                    "tax_paid": info.get("tax_paid"),
                     "realized_after_tax_increment": info.get(
                         "realized_after_tax_increment"
                     ),
@@ -558,17 +984,29 @@ def evaluate_policy_on_episodes(
                     "sold_fraction": info.get("sold_fraction"),
                     "remaining_fraction": info.get("remaining_fraction"),
                     "tax_regime": info.get("tax_regime"),
+                    "applicable_tax_rate": info.get("applicable_tax_rate"),
                     "after_tax_liquidation_tax_regime": info.get(
                         "after_tax_liquidation_tax_regime"
                     ),
+                    "is_automatic_terminal_liquidation": info.get(
+                        "is_automatic_terminal_liquidation"
+                    ),
                     "terminal_liquidation_executed": info.get(
                         "terminal_liquidation_executed"
+                    ),
+                    "terminal_liquidation_tax_paid": info.get(
+                        "terminal_liquidation_tax_paid"
                     ),
                     "done": bool(done),
                 }
             )
 
             episode_total_reward += float(reward)
+            episode_total_reward_A += step_reward_A
+            episode_total_reward_C_lite += step_reward_C_lite
+            episode_total_reward_C_lite_v2 += step_reward_C_lite_v2
+            episode_total_transaction_penalty += step_transaction_penalty
+            episode_total_cooldown_penalty += step_cooldown_penalty
             last_info = info
             obs = next_obs
             step_in_episode += 1
@@ -583,22 +1021,136 @@ def evaluate_policy_on_episodes(
             last_info["after_tax_total_value"]
         )
         assert approx_equal(
-            episode_total_reward,
+            episode_total_reward_A,
             episode_final_after_tax_total_value
             - episode_initial_after_tax_total_value,
         ), (
-            "Episode reward telescoping failed for "
+            "Episode Reward A telescoping failed for "
             f"split={split_name} policy={policy_name} episode_id={episode_id}."
         )
+        if expected_reward_version == REWARD_A_VERSION:
+            assert approx_equal(episode_total_reward, episode_total_reward_A), (
+                "Reward A episode total differs from summed Reward A."
+            )
+        elif expected_reward_version == REWARD_C_LITE_VERSION:
+            assert approx_equal(
+                episode_total_reward,
+                episode_total_reward_A - episode_total_cooldown_penalty,
+            ), (
+                "Reward C-lite episode total does not equal Reward A minus "
+                "cooldown penalties."
+            )
+            assert approx_equal(episode_total_reward, episode_total_reward_C_lite), (
+                "Reward C-lite episode total differs from summed reward_C_lite."
+            )
+        elif expected_reward_version == REWARD_C_LITE_V2_VERSION:
+            assert approx_equal(
+                episode_total_reward,
+                episode_total_reward_A
+                - episode_total_transaction_penalty
+                - episode_total_cooldown_penalty,
+            ), (
+                "Reward C-lite v2 episode total does not equal Reward A minus "
+                "transaction and cooldown penalties."
+            )
+            assert approx_equal(
+                episode_total_reward,
+                episode_total_reward_C_lite_v2,
+            ), (
+                "Reward C-lite v2 episode total differs from summed "
+                "reward_C_lite_v2."
+            )
 
         episode_final_remaining_fraction = float(last_info["remaining_fraction"])
         episode_final_sold_fraction = float(last_info["sold_fraction"])
+        transaction_penalty_frequency = (
+            float(transaction_penalty_steps / step_in_episode)
+            if step_in_episode > 0
+            else 0.0
+        )
+        mean_transaction_penalty_when_applied = (
+            float(np.mean(transaction_penalties_applied))
+            if transaction_penalties_applied
+            else 0.0
+        )
+        cooldown_penalty_frequency = (
+            float(cooldown_penalty_steps / step_in_episode)
+            if step_in_episode > 0
+            else 0.0
+        )
+        mean_cooldown_penalty_when_applied = (
+            float(np.mean(cooldown_penalties_applied))
+            if cooldown_penalties_applied
+            else 0.0
+        )
+        first_sale_date = first_cut_date
+        first_sale_timestamp = (
+            pd.to_datetime(first_sale_date, errors="coerce")
+            if first_sale_date is not None
+            else pd.NaT
+        )
+        if first_sale_date is not None and pd.isna(first_sale_timestamp):
+            raise ValueError(
+                f"Invalid first sale date for episode_id={episode_id}: "
+                f"{first_sale_date!r}."
+            )
+        days_to_first_sale = (
+            int((first_sale_timestamp - episode_start_date).days)
+            if first_sale_date is not None
+            else None
+        )
+        steps_to_first_sale = first_cut_step
+        first_sale_before_tax_transition = (
+            bool(first_sale_timestamp < episode_tax_transition_date)
+            if first_sale_date is not None
+            else False
+        )
+        terminal_or_last_date_value = last_info.get("terminal_liquidation_date")
+        if terminal_or_last_date_value is None or pd.isna(terminal_or_last_date_value):
+            terminal_or_last_date_value = last_info.get("date")
+        terminal_or_last_date = pd.to_datetime(
+            terminal_or_last_date_value,
+            errors="coerce",
+        )
+        reached_tax_transition_before_first_sale_flag = (
+            bool(first_sale_timestamp >= episode_tax_transition_date)
+            if first_sale_date is not None
+            else bool(terminal_or_last_date >= episode_tax_transition_date)
+        )
+        sold_before_tax_transition_flag = bool(total_position_sold_short_term > 0.0)
+        mean_effective_tax_rate_on_sales = (
+            float(
+                total_discretionary_sale_tax_paid
+                / total_positive_discretionary_sale_pre_tax
+            )
+            if total_positive_discretionary_sale_pre_tax > 0.0
+            else 0.0
+        )
         episode_metric_rows.append(
             {
                 "split": split_name,
                 "policy_name": policy_name,
                 "episode_id": episode_id,
                 "episode_total_reward": float(episode_total_reward),
+                "episode_total_reward_A": float(episode_total_reward_A),
+                "episode_total_reward_C_lite": float(episode_total_reward_C_lite),
+                "episode_total_reward_C_lite_v2": float(
+                    episode_total_reward_C_lite_v2
+                ),
+                "episode_total_transaction_penalty": float(
+                    episode_total_transaction_penalty
+                ),
+                "episode_total_cooldown_penalty": float(
+                    episode_total_cooldown_penalty
+                ),
+                "transaction_penalty_frequency": transaction_penalty_frequency,
+                "mean_transaction_penalty_when_applied": (
+                    mean_transaction_penalty_when_applied
+                ),
+                "cooldown_penalty_frequency": cooldown_penalty_frequency,
+                "mean_cooldown_penalty_when_applied": (
+                    mean_cooldown_penalty_when_applied
+                ),
                 "episode_initial_after_tax_total_value": (
                     episode_initial_after_tax_total_value
                 ),
@@ -621,6 +1173,38 @@ def evaluate_policy_on_episodes(
                 "first_cut_step": first_cut_step,
                 "first_cut_date": first_cut_date,
                 "first_cut_fraction_executed": first_cut_fraction_executed,
+                "days_to_first_sale": days_to_first_sale,
+                "steps_to_first_sale": steps_to_first_sale,
+                "first_sale_date": first_sale_date,
+                "first_sale_before_tax_transition": (
+                    first_sale_before_tax_transition
+                ),
+                "pct_episode_position_sold_short_term": float(
+                    total_position_sold_short_term
+                ),
+                "pct_episode_position_sold_long_term": float(
+                    total_position_sold_long_term
+                ),
+                "total_position_sold_short_term": float(
+                    total_position_sold_short_term
+                ),
+                "total_position_sold_long_term": float(
+                    total_position_sold_long_term
+                ),
+                "mean_effective_tax_rate_on_sales": (
+                    mean_effective_tax_rate_on_sales
+                ),
+                "total_tax_paid": float(total_tax_paid),
+                "total_transaction_penalty": float(
+                    episode_total_transaction_penalty
+                ),
+                "total_cooldown_penalty": float(episode_total_cooldown_penalty),
+                "num_discretionary_sales": int(num_discretionary_sales),
+                "num_cooldown_penalized_sales": int(num_cooldown_penalized_sales),
+                "sold_before_tax_transition_flag": sold_before_tax_transition_flag,
+                "reached_tax_transition_before_first_sale_flag": (
+                    reached_tax_transition_before_first_sale_flag
+                ),
             }
         )
 
@@ -640,12 +1224,49 @@ def summarize_by_policy(episode_metrics_df: pd.DataFrame) -> pd.DataFrame:
         metrics["first_cut_fraction_executed"],
         errors="coerce",
     )
+    for column in [
+        "days_to_first_sale",
+        "steps_to_first_sale",
+        "pct_episode_position_sold_short_term",
+        "pct_episode_position_sold_long_term",
+        "mean_effective_tax_rate_on_sales",
+        "total_tax_paid",
+        "total_transaction_penalty",
+        "total_cooldown_penalty",
+        "num_discretionary_sales",
+        "num_cooldown_penalized_sales",
+    ]:
+        metrics[column] = pd.to_numeric(metrics[column], errors="coerce")
+    metrics["first_sale_before_tax_transition_bool"] = (
+        metrics["first_sale_before_tax_transition"].fillna(False).astype(bool)
+    )
+    metrics["sold_before_tax_transition_bool"] = (
+        metrics["sold_before_tax_transition_flag"].fillna(False).astype(bool)
+    )
+    metrics["sell_immediately"] = metrics["first_cut_step"].eq(0)
 
     summary_df = (
         metrics.groupby(["split", "policy_name"], sort=True)
         .agg(
             num_episodes=("episode_total_reward", "size"),
             mean_episode_total_reward=("episode_total_reward", "mean"),
+            mean_episode_total_reward_A=("episode_total_reward_A", "mean"),
+            mean_episode_total_reward_C_lite=(
+                "episode_total_reward_C_lite",
+                "mean",
+            ),
+            mean_episode_total_reward_C_lite_v2=(
+                "episode_total_reward_C_lite_v2",
+                "mean",
+            ),
+            mean_episode_total_transaction_penalty=(
+                "episode_total_transaction_penalty",
+                "mean",
+            ),
+            mean_episode_total_cooldown_penalty=(
+                "episode_total_cooldown_penalty",
+                "mean",
+            ),
             median_episode_total_reward=("episode_total_reward", "median"),
             std_episode_total_reward=("episode_total_reward", "std"),
             min_episode_total_reward=("episode_total_reward", "min"),
@@ -679,15 +1300,59 @@ def summarize_by_policy(episode_metrics_df: pd.DataFrame) -> pd.DataFrame:
             ),
             full_liquidation_frequency=("episode_full_liquidation", "mean"),
             cut_frequency=("episode_cut_occurred", "mean"),
+            sell_immediately_frequency=("sell_immediately", "mean"),
             mean_first_cut_step=("first_cut_step", "mean"),
             median_first_cut_step=("first_cut_step", "median"),
             mean_first_cut_fraction_executed=(
                 "first_cut_fraction_executed",
                 "mean",
             ),
+            average_days_to_first_sale=("days_to_first_sale", "mean"),
+            median_days_to_first_sale=("days_to_first_sale", "median"),
+            average_steps_to_first_sale=("steps_to_first_sale", "mean"),
+            pct_episodes_with_first_sale_before_tax_transition=(
+                "first_sale_before_tax_transition_bool",
+                "mean",
+            ),
+            pct_episodes_sold_before_tax_transition=(
+                "sold_before_tax_transition_bool",
+                "mean",
+            ),
+            mean_pct_position_sold_short_term=(
+                "pct_episode_position_sold_short_term",
+                "mean",
+            ),
+            mean_pct_position_sold_long_term=(
+                "pct_episode_position_sold_long_term",
+                "mean",
+            ),
+            mean_effective_tax_rate=(
+                "mean_effective_tax_rate_on_sales",
+                "mean",
+            ),
+            mean_total_tax_paid=("total_tax_paid", "mean"),
+            mean_transaction_penalty=("total_transaction_penalty", "mean"),
+            mean_cooldown_penalty=("total_cooldown_penalty", "mean"),
+            mean_num_discretionary_sales=("num_discretionary_sales", "mean"),
+            mean_num_cooldown_penalized_sales=(
+                "num_cooldown_penalized_sales",
+                "mean",
+            ),
         )
         .reset_index()
     )
+    for baseline_policy, output_column in [
+        ("sell_immediately", "mean_excess_value_vs_sell_immediately"),
+        ("hold_to_terminal", "mean_excess_value_vs_hold_to_terminal"),
+    ]:
+        baseline_values = summary_df.loc[
+            summary_df["policy_name"].eq(baseline_policy),
+            ["split", "mean_final_after_tax_total_value"],
+        ].set_index("split")["mean_final_after_tax_total_value"]
+        summary_df[output_column] = (
+            summary_df["mean_final_after_tax_total_value"]
+            - summary_df["split"].map(baseline_values)
+        )
     return summary_df[SUMMARY_COLUMNS]
 
 
@@ -699,7 +1364,7 @@ def build_summary_text(
         split_summary = summary_df[summary_df["split"] == split_name]
         if split_summary.empty:
             return "None"
-        best_idx = split_summary["mean_episode_total_reward"].idxmax()
+        best_idx = split_summary["mean_final_after_tax_total_value"].idxmax()
         return str(split_summary.loc[best_idx, "policy_name"])
 
     num_validation_episodes = int(
@@ -718,15 +1383,19 @@ def build_summary_text(
     summary_table = summary_df.to_string(index=False)
 
     lines = [
-        "Reward A Baseline Evaluation Summary",
+        "Reward Baseline Evaluation Summary",
         f"reward_version: {SUMMARY_CONTEXT.get('reward_version', 'unknown')}",
+        f"tax_profile_name: {SUMMARY_CONTEXT.get('tax_profile_name', 'unknown')}",
+        f"resolved_tax_profile: {SUMMARY_CONTEXT.get('resolved_tax_profile', 'unknown')}",
         f"model_path: {SUMMARY_CONTEXT.get('model_path', 'unknown')}",
         f"episode_splits_path: {SUMMARY_CONTEXT.get('episode_splits_path', 'unknown')}",
         f"num_validation_episodes: {num_validation_episodes}",
         f"num_test_episodes: {num_test_episodes}",
         "policies_evaluated: " + ", ".join(str(policy) for policy in policies_evaluated),
-        "best_validation_policy_by_mean_reward: " + _best_policy("validation"),
-        "best_test_policy_by_mean_reward: " + _best_policy("test"),
+        "best_validation_policy_by_mean_final_after_tax_total_value: "
+        + _best_policy("validation"),
+        "best_test_policy_by_mean_final_after_tax_total_value: "
+        + _best_policy("test"),
         "summary_table:",
         summary_table,
         "",
@@ -746,18 +1415,46 @@ def _apply_episode_cap(
     return episode_ids[: int(cap)]
 
 
-def main() -> None:
-    print("Reward A Baseline Evaluation")
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Evaluate DQN and baseline policies for an environment reward."
+    )
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=CONFIG_PATH,
+        help=(
+            "Evaluation config path. Defaults to "
+            f"{_relative_project_path(CONFIG_PATH)}."
+        ),
+    )
+    return parser.parse_args()
 
-    config = load_yaml(CONFIG_PATH)
-    _validate_reward_a_config(config)
+
+def main() -> None:
+    print("Reward Baseline Evaluation")
+
+    args = parse_args()
+    config_path = resolve_project_path(args.config)
+    config = load_yaml(config_path)
+    _validate_reward_config(config)
     expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
     output_dir = resolve_project_path(_require(config, "logging.output_dir"))
     baselines_dir = output_dir / "baselines"
-    model_path = output_dir / "final_model.pt"
+    best_validation_model_path = output_dir / "best_validation_model.pt"
+    final_model_path = output_dir / "final_model.pt"
+    model_path = (
+        best_validation_model_path
+        if best_validation_model_path.exists()
+        else final_model_path
+    )
     episode_splits_path = output_dir / "episode_splits.csv"
 
     env = make_env(config)
+    resolved_tax_profile = resolve_tax_profile_from_config(
+        config,
+        base_dir=PROJECT_ROOT,
+    )
     state_columns = load_state_columns(
         resolve_project_path(_require(config, "environment.state_schema_path"))
     )
@@ -793,7 +1490,7 @@ def main() -> None:
     baselines_dir.mkdir(parents=True, exist_ok=True)
     save_yaml(
         {
-            "source_config_path": _relative_project_path(CONFIG_PATH),
+            "source_config_path": _relative_project_path(config_path),
             "model_path": _relative_project_path(model_path),
             "episode_splits_path": _relative_project_path(episode_splits_path),
             "output_dir": _relative_project_path(baselines_dir),
@@ -801,6 +1498,7 @@ def main() -> None:
             "max_validation_episodes": MAX_VALIDATION_EPISODES,
             "max_test_episodes": MAX_TEST_EPISODES,
             "policies_evaluated": POLICY_NAMES,
+            "resolved_tax_profile": resolved_tax_profile,
             "training_config": config,
         },
         baselines_dir / "baseline_config_used.yaml",
@@ -858,6 +1556,8 @@ def main() -> None:
     SUMMARY_CONTEXT.update(
         {
             "reward_version": expected_reward_version,
+            "tax_profile_name": resolved_tax_profile["profile_name"],
+            "resolved_tax_profile": resolved_tax_profile,
             "model_path": _relative_project_path(model_path),
             "episode_splits_path": _relative_project_path(episode_splits_path),
             "policies_evaluated": POLICY_NAMES,
@@ -870,7 +1570,7 @@ def main() -> None:
     ) as handle:
         handle.write(summary_text)
 
-    print("REWARD A BASELINE EVALUATION COMPLETE")
+    print(f"BASELINE EVALUATION COMPLETE reward_version={expected_reward_version}")
 
 
 if __name__ == "__main__":

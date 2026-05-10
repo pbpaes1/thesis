@@ -31,6 +31,18 @@ InfoDict = dict[str, Any]
 ResetResult = tuple[Observation, InfoDict]
 StepResult = tuple[Observation, float, bool, bool, InfoDict]
 
+REWARD_A_VERSION = "A_after_tax_total_value_change"
+REWARD_C_LITE_VERSION = "C_lite_after_tax_value_change_minus_cooldown_penalty"
+REWARD_C_LITE_V2_VERSION = (
+    "C_lite_v2_after_tax_value_change_minus_transaction_and_cooldown_penalty"
+)
+SUPPORTED_REWARD_VERSIONS = {
+    REWARD_A_VERSION,
+    REWARD_C_LITE_VERSION,
+    REWARD_C_LITE_V2_VERSION,
+}
+COOLDOWN_REWARD_VERSIONS = {REWARD_C_LITE_VERSION, REWARD_C_LITE_V2_VERSION}
+
 
 class TaxAwareEnv:
     """Plain Python skeleton for a tax-aware optimal stopping / liquidation environment.
@@ -69,6 +81,7 @@ class TaxAwareEnv:
         state_columns: Sequence[str],
         action_fractions: Sequence[float] | None = None,
         tax_config: Mapping[str, Any] | None = None,
+        reward_config: Mapping[str, Any] | None = None,
         seed: int | None = None,
     ) -> None:
         """Initialize lightweight configuration and runtime placeholders.
@@ -86,6 +99,123 @@ class TaxAwareEnv:
         self.tax_config = dict(
             tax_config if tax_config is not None else self.DEFAULT_TAX_CONFIG
         )
+        self.reward_config = dict(reward_config if reward_config is not None else {})
+        self.reward_version = str(
+            self.reward_config.get("version", REWARD_A_VERSION)
+        )
+        if self.reward_version not in SUPPORTED_REWARD_VERSIONS:
+            raise ValueError(
+                f"Unsupported reward version {self.reward_version!r}. "
+                f"Supported versions: {sorted(SUPPORTED_REWARD_VERSIONS)}."
+            )
+        self.base_reward_version = str(
+            self.reward_config.get("base_reward_version", REWARD_A_VERSION)
+        )
+        if self.reward_version in COOLDOWN_REWARD_VERSIONS:
+            if self.base_reward_version != REWARD_A_VERSION:
+                raise ValueError(
+                    "Reward C-lite rewards require base_reward_version="
+                    f"{REWARD_A_VERSION!r}, got {self.base_reward_version!r}."
+                )
+
+        raw_transaction_config = self.reward_config.get("transaction_penalty", {})
+        if raw_transaction_config is None:
+            raw_transaction_config = {}
+        if not isinstance(raw_transaction_config, Mapping):
+            raise ValueError(
+                "reward.transaction_penalty must be a mapping when provided."
+            )
+        self.transaction_penalty_config = dict(raw_transaction_config)
+        default_transaction_enabled = self.reward_version == REWARD_C_LITE_V2_VERSION
+        self._transaction_penalty_enabled = bool(
+            self.transaction_penalty_config.get(
+                "enabled",
+                self.reward_config.get(
+                    "use_transaction_penalty",
+                    default_transaction_enabled,
+                ),
+            )
+        )
+        self._lambda_transaction = float(
+            self.transaction_penalty_config.get("lambda_transaction", 0.0)
+        )
+        self._scale_transaction_by_executed_fraction = bool(
+            self.transaction_penalty_config.get("scale_by_executed_fraction", True)
+        )
+        self._apply_transaction_to_first_sale = bool(
+            self.transaction_penalty_config.get("apply_to_first_sale", True)
+        )
+        self._apply_transaction_to_automatic_terminal_liquidation = bool(
+            self.transaction_penalty_config.get(
+                "apply_to_automatic_terminal_liquidation",
+                False,
+            )
+        )
+
+        raw_cooldown_config = self.reward_config.get("cooldown_penalty", {})
+        if raw_cooldown_config is None:
+            raw_cooldown_config = {}
+        if not isinstance(raw_cooldown_config, Mapping):
+            raise ValueError("reward.cooldown_penalty must be a mapping when provided.")
+        self.cooldown_penalty_config = dict(raw_cooldown_config)
+        default_cooldown_enabled = self.reward_version in COOLDOWN_REWARD_VERSIONS
+        self._cooldown_penalty_enabled = bool(
+            self.cooldown_penalty_config.get(
+                "enabled",
+                self.reward_config.get(
+                    "use_cooldown_penalty",
+                    default_cooldown_enabled,
+                ),
+            )
+        )
+        self._lambda_cooldown = float(
+            self.cooldown_penalty_config.get("lambda_cooldown", 0.0)
+        )
+        self._cooldown_days = int(
+            self.cooldown_penalty_config.get("cooldown_days", 20)
+        )
+        self._scale_cooldown_by_executed_fraction = bool(
+            self.cooldown_penalty_config.get("scale_by_executed_fraction", True)
+        )
+        self._penalize_first_sale = bool(
+            self.cooldown_penalty_config.get("penalize_first_sale", False)
+        )
+        self._apply_cooldown_to_automatic_terminal_liquidation = bool(
+            self.cooldown_penalty_config.get(
+                "apply_to_automatic_terminal_liquidation",
+                False,
+            )
+        )
+        if self.reward_version in COOLDOWN_REWARD_VERSIONS:
+            if not self._cooldown_penalty_enabled:
+                raise ValueError("Reward C-lite requires cooldown_penalty.enabled=true.")
+            if self._lambda_cooldown < 0.0:
+                raise ValueError("lambda_cooldown must be non-negative.")
+            if self._cooldown_days <= 0:
+                raise ValueError("cooldown_days must be positive.")
+            if self._penalize_first_sale:
+                raise ValueError("Reward C-lite does not penalize the first sale.")
+            if self._apply_cooldown_to_automatic_terminal_liquidation:
+                raise ValueError(
+                    "Reward C-lite does not apply cooldown penalties to "
+                    "automatic terminal liquidation."
+                )
+        if self.reward_version == REWARD_C_LITE_V2_VERSION:
+            if not self._transaction_penalty_enabled:
+                raise ValueError(
+                    "Reward C-lite v2 requires transaction_penalty.enabled=true."
+                )
+            if self._lambda_transaction < 0.0:
+                raise ValueError("lambda_transaction must be non-negative.")
+            if not self._apply_transaction_to_first_sale:
+                raise ValueError(
+                    "Reward C-lite v2 requires transaction penalties on first sales."
+                )
+            if self._apply_transaction_to_automatic_terminal_liquidation:
+                raise ValueError(
+                    "Reward C-lite v2 does not apply transaction penalties to "
+                    "automatic terminal liquidation."
+                )
         self.seed = seed if seed is not None else self.DEFAULT_SEED
         self._rng = np.random.default_rng(self.seed)
 
@@ -119,6 +249,11 @@ class TaxAwareEnv:
         self._prev_after_tax_total_value: float = 0.0
         self._after_tax_total_value: float = 0.0
         self._after_tax_liquidation_value_remaining: float = 0.0
+
+        # Reward C-lite cooldown state. Automatic terminal liquidation does not
+        # update these fields because it is not a discretionary agent sale.
+        self._last_sale_date: pd.Timestamp | None = None
+        self._sale_count: int = 0
 
     def _resolve_effective_tax_rate(
         self,
@@ -190,6 +325,108 @@ class TaxAwareEnv:
                 "Column 'unrealized_gains_pct' contains NaN in current row."
             )
         return full_position_pnl
+
+    def _parse_step_date(self, value: Any, *, context: str) -> pd.Timestamp:
+        """Parse an environment row date for cooldown bookkeeping."""
+        step_date = pd.to_datetime(value, errors="coerce")
+        if pd.isna(step_date):
+            raise ValueError(
+                f"Cannot compute sale cooldown state: invalid date in {context}: "
+                f"{value!r}."
+            )
+        return pd.Timestamp(step_date)
+
+    def _compute_cooldown_penalty(
+        self,
+        *,
+        executable_fraction: float,
+        current_sale_date: pd.Timestamp | None,
+    ) -> tuple[float, bool, int | None, bool]:
+        """Compute the Reward C-lite cooldown penalty before sale-state update."""
+        previous_sale_exists = bool(
+            self._sale_count > 0 and self._last_sale_date is not None
+        )
+        days_since_last_sale: int | None = None
+        cooldown_penalty = 0.0
+        cooldown_penalty_applied = False
+
+        if executable_fraction <= 0.0:
+            return (
+                cooldown_penalty,
+                cooldown_penalty_applied,
+                days_since_last_sale,
+                previous_sale_exists,
+            )
+        if current_sale_date is None:
+            raise ValueError(
+                "Internal error: executable sale requires a parsed current sale date."
+            )
+        if previous_sale_exists:
+            delta_days = int((current_sale_date - self._last_sale_date).days)
+            if delta_days < 0:
+                raise ValueError(
+                    "Sale dates must be non-decreasing within an episode for "
+                    "cooldown penalty computation. "
+                    f"last_sale_date={self._last_sale_date}, "
+                    f"current_sale_date={current_sale_date}."
+                )
+            days_since_last_sale = delta_days
+
+        if (
+            self.reward_version in COOLDOWN_REWARD_VERSIONS
+            and self._cooldown_penalty_enabled
+            and previous_sale_exists
+            and days_since_last_sale is not None
+            and days_since_last_sale < self._cooldown_days
+        ):
+            scale = (
+                float(executable_fraction)
+                if self._scale_cooldown_by_executed_fraction
+                else 1.0
+            )
+            cooldown_penalty = float(
+                self._lambda_cooldown
+                * scale
+                * max(0, self._cooldown_days - days_since_last_sale)
+                / self._cooldown_days
+            )
+            cooldown_penalty_applied = bool(cooldown_penalty > 0.0)
+
+        return (
+            cooldown_penalty,
+            cooldown_penalty_applied,
+            days_since_last_sale,
+            previous_sale_exists,
+        )
+
+    def _compute_transaction_penalty(
+        self,
+        *,
+        executable_fraction: float,
+        is_automatic_terminal_liquidation: bool,
+    ) -> tuple[float, bool]:
+        """Compute the Reward C-lite v2 discretionary sale transaction penalty."""
+        transaction_penalty = 0.0
+        transaction_penalty_applied = False
+
+        if (
+            self.reward_version != REWARD_C_LITE_V2_VERSION
+            or not self._transaction_penalty_enabled
+            or executable_fraction <= 0.0
+        ):
+            return transaction_penalty, transaction_penalty_applied
+        if is_automatic_terminal_liquidation:
+            if not self._apply_transaction_to_automatic_terminal_liquidation:
+                return transaction_penalty, transaction_penalty_applied
+
+        scale = (
+            float(executable_fraction)
+            if self._scale_transaction_by_executed_fraction
+            else 1.0
+        )
+        transaction_penalty = float(self._lambda_transaction * scale)
+        transaction_penalty_applied = bool(transaction_penalty > 0.0)
+        return transaction_penalty, transaction_penalty_applied
 
     def _compute_after_tax_pnl_increment(
         self,
@@ -344,6 +581,8 @@ class TaxAwareEnv:
         self._remaining_fraction = 1.0
         self._cum_realized_pre_tax_pnl = 0.0
         self._cum_realized_after_tax_pnl = 0.0
+        self._last_sale_date = None
+        self._sale_count = 0
 
         observation = self._get_observation()
         current_row = self._current_episode_df.iloc[self._current_row_ptr]
@@ -369,6 +608,7 @@ class TaxAwareEnv:
             "episode_id": self._current_episode_id,
             "current_row_ptr": self._current_row_ptr,
             "date": current_row["date"],
+            "tax_transition_date": current_row["tax_transition_date"],
             "sold_fraction": self._sold_fraction,
             "remaining_fraction": self._remaining_fraction,
             "cum_realized_pre_tax_pnl": self._cum_realized_pre_tax_pnl,
@@ -389,6 +629,24 @@ class TaxAwareEnv:
             ),
             "after_tax_total_value": self._after_tax_total_value,
             "previous_after_tax_total_value": self._prev_after_tax_total_value,
+            "reward_version": self.reward_version,
+            "reward": 0.0,
+            "reward_A": 0.0,
+            "reward_C_lite": 0.0,
+            "reward_C_lite_v2": 0.0,
+            "transaction_penalty": 0.0,
+            "transaction_penalty_applied": False,
+            "lambda_transaction": self._lambda_transaction,
+            "cooldown_penalty": 0.0,
+            "cooldown_penalty_applied": False,
+            "cooldown_days": self._cooldown_days,
+            "lambda_cooldown": self._lambda_cooldown,
+            "days_since_last_sale": None,
+            "last_sale_date_before_step": None,
+            "last_sale_date_after_step": None,
+            "sale_count": self._sale_count,
+            "previous_sale_exists": False,
+            "is_automatic_terminal_liquidation": False,
         }
         return observation, info
 
@@ -524,7 +782,41 @@ class TaxAwareEnv:
             self._cum_realized_after_tax_pnl
             + after_tax_liquidation_value_remaining
         )
-        reward = float(after_tax_total_value - previous_after_tax_total_value)
+        reward_A = float(after_tax_total_value - previous_after_tax_total_value)
+
+        sale_executed = bool(executable_fraction > 0.0)
+        current_sale_date = (
+            self._parse_step_date(sale_row["date"], context="current sale row")
+            if sale_executed
+            else None
+        )
+        last_sale_date_before_step = self._last_sale_date
+        (
+            cooldown_penalty,
+            cooldown_penalty_applied,
+            days_since_last_sale,
+            previous_sale_exists,
+        ) = self._compute_cooldown_penalty(
+            executable_fraction=executable_fraction,
+            current_sale_date=current_sale_date,
+        )
+        (
+            transaction_penalty,
+            transaction_penalty_applied,
+        ) = self._compute_transaction_penalty(
+            executable_fraction=executable_fraction,
+            is_automatic_terminal_liquidation=False,
+        )
+        reward_C_lite = float(reward_A - cooldown_penalty)
+        reward_C_lite_v2 = float(
+            reward_A - transaction_penalty - cooldown_penalty
+        )
+        if self.reward_version == REWARD_C_LITE_VERSION:
+            reward = reward_C_lite
+        elif self.reward_version == REWARD_C_LITE_V2_VERSION:
+            reward = reward_C_lite_v2
+        else:
+            reward = reward_A
 
         self._after_tax_liquidation_value_remaining = (
             after_tax_liquidation_value_remaining
@@ -577,6 +869,11 @@ class TaxAwareEnv:
             final_liquidation_pre_tax_value_remaining = 0.0
             final_liquidation_tax_drag_remaining = 0.0
 
+        if sale_executed:
+            self._sale_count += 1
+            self._last_sale_date = current_sale_date
+        last_sale_date_after_step = self._last_sale_date
+
         self._current_row_ptr = next_row_ptr
         observation = self._get_observation()
         info: InfoDict = {
@@ -584,6 +881,7 @@ class TaxAwareEnv:
             "current_row_ptr": self._current_row_ptr,
             "sale_row_ptr": sale_row_ptr,
             "date": sale_row["date"],
+            "tax_transition_date": sale_row["tax_transition_date"],
             "action": action_idx,
             "action_fraction_requested": requested_fraction,
             "action_fraction_executed": executable_fraction,
@@ -613,9 +911,24 @@ class TaxAwareEnv:
                 self._after_tax_liquidation_value_remaining
             ),
             "after_tax_total_value": self._after_tax_total_value,
-            "reward_version": "A_after_tax_total_value_change",
+            "reward_version": self.reward_version,
             "reward": reward,
-            "reward_A": reward,
+            "reward_A": reward_A,
+            "reward_C_lite": reward_C_lite,
+            "reward_C_lite_v2": reward_C_lite_v2,
+            "transaction_penalty": transaction_penalty,
+            "transaction_penalty_applied": transaction_penalty_applied,
+            "lambda_transaction": self._lambda_transaction,
+            "cooldown_penalty": cooldown_penalty,
+            "cooldown_penalty_applied": cooldown_penalty_applied,
+            "cooldown_days": self._cooldown_days,
+            "lambda_cooldown": self._lambda_cooldown,
+            "days_since_last_sale": days_since_last_sale,
+            "last_sale_date_before_step": last_sale_date_before_step,
+            "last_sale_date_after_step": last_sale_date_after_step,
+            "sale_count": self._sale_count,
+            "previous_sale_exists": previous_sale_exists,
+            "is_automatic_terminal_liquidation": terminal_liquidation_required,
             "terminal_liquidation_executed": terminal_liquidation_required,
             "terminal_liquidation_row_ptr": (
                 liquidation_row_ptr if terminal_liquidation_required else None

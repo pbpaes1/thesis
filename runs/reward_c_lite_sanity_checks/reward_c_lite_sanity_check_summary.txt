@@ -1,0 +1,7 @@
+Reward C-lite Sanity Check Summary
+reward_version: C_lite_after_tax_value_change_minus_cooldown_penalty
+lambda_cooldown: 0.0025
+cooldown_days: 20
+terminal_liquidation_assumption: automatic terminal liquidation is not penalized because it is not agent-requested
+num_scenarios: 6
+status: passed

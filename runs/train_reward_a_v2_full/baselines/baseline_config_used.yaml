@@ -1,0 +1,184 @@
+source_config_path: configs/train_reward_a_v2.yaml
+model_path: runs/train_reward_a_v2_full/final_model.pt
+episode_splits_path: runs/train_reward_a_v2_full/episode_splits.csv
+output_dir: runs/train_reward_a_v2_full/baselines
+reward_version: A_after_tax_total_value_change
+max_validation_episodes: null
+max_test_episodes: null
+policies_evaluated:
+- trained_dqn_greedy
+- hold_to_terminal
+- sell_immediately
+- sell_half_then_hold
+- sell_quarters_over_time
+- random_policy
+resolved_tax_profile:
+  profile_name: mass_affluent_individual
+  short_term_rate: 0.1919
+  long_term_rate: 0.1018
+  niit_rate: 0.0
+  apply_niit: false
+training_config:
+  run:
+    name: train_reward_a_v2_full
+    phase: build_and_train
+    description: Reward A full training run with hold-biased exploration.
+    status: ready_for_full_training
+  environment:
+    class_path: src.environment.tax_aware_env.TaxAwareEnv
+    parquet_path: data/episodes/drl_episodes.parquet
+    state_schema_path: data/freeze/v1/allowed_state_columns_v1.json
+    reset_mode: episode_id
+    observation_source: allowed_state_columns_v1
+    terminal_conditions:
+      done_on_final_row: true
+      done_on_full_liquidation: true
+      truncated: false
+    terminal_liquidation:
+      enabled: true
+      tax_regime: long_term
+  reward:
+    version: A_after_tax_total_value_change
+    frozen_config_path: configs/reward_v1.yaml
+    freeze_document_path: docs/reward_freeze_v1.md
+    use_environment_reward: true
+    assert_reward_version: true
+    expected_info_reward_version: A_after_tax_total_value_change
+    use_drawdown_penalty: false
+    use_cooldown_penalty: false
+    use_explicit_tax_saving_bonus: false
+    use_reward_clipping: false
+    use_reward_normalization: false
+  tax_profile:
+    profile_name: mass_affluent_individual
+    config_path: configs/individual_tax_profiles_v1.yaml
+  data:
+    episode_id_column: episode_id
+    date_column: date
+    tax_transition_date_column: tax_transition_date
+    pnl_column: unrealized_gains_pct
+    max_episodes_debug: 20
+    max_episodes_train: null
+    require_sorted_by:
+    - episode_id
+    - date
+  action_space:
+    type: discrete_fraction_of_original_position
+    action_fractions:
+    - 0.0
+    - 0.25
+    - 0.5
+    - 0.75
+    - 1.0
+    action_meanings:
+      '0': hold
+      '1': sell_25pct_original_position
+      '2': sell_50pct_original_position
+      '3': sell_75pct_original_position
+      '4': sell_100pct_original_position
+    oversell_clamp: true
+  exploration:
+    random_action_policy: hold_biased
+    action_probabilities:
+    - 0.5
+    - 0.2
+    - 0.15
+    - 0.1
+    - 0.05
+  splits:
+    method: chronological_by_episode
+    train_fraction: 0.7
+    validation_fraction: 0.15
+    test_fraction: 0.15
+    shuffle_episodes: false
+    leakage_guard:
+      split_by_episode_id: true
+      no_row_level_mixing_across_splits: true
+  algorithm:
+    name: dqn
+    reason: Discrete action space with five fixed sell fractions.
+    framework: torch
+    policy_network:
+      hidden_layers:
+      - 128
+      - 128
+      activation: relu
+    target_network:
+      enabled: true
+      update_frequency_steps: 1000
+    replay_buffer:
+      enabled: true
+      capacity: 50000
+      batch_size: 64
+  training:
+    seed: 42
+    device: auto
+    debug_first: true
+    debug:
+      episodes: 20
+      max_steps_per_episode: null
+      purpose: Verify training loop, reward plumbing, and loss stability before full
+        run.
+    full_run:
+      episodes: null
+      max_steps_per_episode: null
+    discount_factor_gamma: 0.99
+    learning_rate: 0.0001
+    optimizer: adam
+    epsilon_schedule:
+      start: 1.0
+      end: 0.05
+      decay_steps: 47500
+    gradient_clip_norm: 10.0
+    checkpoint_frequency_episodes: 50
+  evaluation:
+    evaluate_during_training: true
+    evaluation_frequency_episodes: 250
+    max_eval_episodes: 500
+    deterministic_policy: true
+    benchmark_policies:
+    - hold_to_terminal
+    - sell_immediately
+    - sell_half_then_hold
+    - sell_quarters_over_time
+    - random_policy
+    primary_metrics:
+    - mean_episode_total_reward
+    - median_episode_total_reward
+    - final_after_tax_total_value
+    - realized_after_tax_pnl
+    - terminal_liquidation_frequency
+    - average_steps_to_liquidation
+    sanity_assertions:
+      reward_identity: true
+      episode_reward_telescoping: true
+      no_nan_rewards: true
+      no_infinite_rewards: true
+      reward_version_matches_config: true
+  logging:
+    output_dir: runs/train_reward_a_v2_full
+    save_config_copy: true
+    save_training_metrics: true
+    save_episode_rollouts: true
+    save_model_checkpoints: true
+    save_final_model: true
+    tensorboard:
+      enabled: false
+      log_dir: runs/train_reward_a_v2_full/tensorboard
+    csv_logs:
+      train_metrics: runs/train_reward_a_v2_full/train_metrics.csv
+      eval_metrics: runs/train_reward_a_v2_full/eval_metrics.csv
+      episode_rollouts: runs/train_reward_a_v2_full/episode_rollouts.csv
+  reproducibility:
+    python_seed: 42
+    numpy_seed: 42
+    torch_seed: 42
+    deterministic_torch: false
+    record_git_commit: true
+    record_config_hash: true
+  notes:
+  - Reward A is frozen for the first training run.
+  - Reward B and Reward C are deferred until after baseline Reward A behavior is evaluated.
+  - This config is for training preparation only; it should not trigger training by
+    itself.
+  - The first run should be a small debug run before a full training run.

@@ -4,6 +4,30 @@ Deep learning approach to optimizing stock position exit timing under US short-t
 
 ---
 
+## Current build/train status
+
+The current build-and-train branch contains the Reward A and Reward C-lite
+experiments used to test tax-aware liquidation behavior:
+
+- Reward A: `A_after_tax_total_value_change`
+- Reward C-lite v1:
+  `C_lite_after_tax_value_change_minus_cooldown_penalty`
+- Reward C-lite v2:
+  `C_lite_v2_after_tax_value_change_minus_transaction_and_cooldown_penalty`
+
+Reward C-lite v1 keeps Reward A as the economic reward and subtracts a
+cooldown penalty for clustered discretionary sales. Reward C-lite v2 additionally
+subtracts a small transaction penalty from every discretionary executed sale,
+uses `gamma = 1.0`, and uses more hold-biased exploration.
+
+These experiments do not implement Reward B, drawdown penalties, or explicit
+tax-saving bonuses. Baseline and behavior inspection scripts are config-driven
+and currently exclude tax-transition baselines because the generated episodes
+already terminate at the one-year tax threshold, making `sell_at_tax_transition`
+equivalent to `hold_to_terminal`.
+
+---
+
 ## Setup
 
 ### 1. Create the virtual environment (Python 3.12)
@@ -84,9 +108,16 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   └── tax_profiles/       # Reusable individual tax-profile configs
 ├── configs/
 │   ├── reward_v1.yaml      # Frozen Reward A config
-│   └── train_reward_a_v1.yaml  # First Reward A DQN training config
+│   ├── train_reward_a_v1.yaml  # First Reward A DQN training config
+│   ├── train_reward_a_v2.yaml  # Reward A full-run config iteration
+│   ├── train_reward_a_v3.yaml  # Reward A v3 full-run config
+│   ├── train_reward_c_lite_v1.yaml  # Reward A minus cooldown penalty
+│   └── train_reward_c_lite_v2.yaml  # Reward A minus transaction and cooldown penalties
 ├── docs/
 │   ├── reward_freeze_v1.md # Reward A freeze document
+│   ├── reward_c_lite_design.md # Reward C-lite v1 design note
+│   ├── reward_c_lite_v2_design.md # Reward C-lite v2 design note
+│   ├── model_freeze_reward_c_lite_v1.md # Pending C-lite v1 freeze template
 │   └── training_plan_v1.md # Build/train plan for Reward A
 ├── notebooks/
 │   └── explore_data.ipynb  # Interactive data exploration
@@ -95,11 +126,18 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── reward_sanity_checks.py    # Reward A identity and scale checks
 │   ├── check_reward_scale.py      # Reward scale diagnostics
 │   ├── train_dqn_reward_a_debug.py  # Small Reward A DQN debug run
-│   ├── train_dqn_reward_a_full.py   # Full Reward A DQN training run
-│   ├── evaluate_reward_a_baselines.py  # DQN vs simple baseline policies
-│   └── inspect_reward_a_policy_behavior.py  # Learned-policy behavior inspection
+│   ├── train_dqn_reward_a_full.py   # Config-driven full DQN training run
+│   ├── evaluate_reward_a_baselines.py  # Config-driven DQN vs baseline evaluation
+│   ├── inspect_reward_a_policy_behavior.py  # Config-driven behavior inspection
+│   ├── reward_c_lite_sanity_checks.py  # Reward C-lite v1 synthetic checks
+│   ├── reward_c_lite_v2_sanity_checks.py  # Reward C-lite v2 synthetic checks
+│   └── write_run_manifest.py  # Reproducibility manifest writer
 ├── runs/
-│   └── train_reward_a_v1/  # Local Reward A model, metrics, baselines, behavior summaries
+│   ├── train_reward_a_v1/  # Local Reward A v1 model, metrics, baselines, behavior summaries
+│   ├── train_reward_a_v2_full/  # Reward A v2 full-run outputs
+│   ├── train_reward_a_v3_full/  # Reward A v3 full-run outputs
+│   ├── train_reward_c_lite_v1_full/  # Reward C-lite v1 outputs
+│   └── train_reward_c_lite_v2_full/  # Reward C-lite v2 outputs
 ├── src/
 │   └── fetch_data.py       # Data download pipeline
 │   └── check_universe_gaps.py  # Quality checks + date filtering
@@ -111,7 +149,9 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   └── environment/
 │       └── tax_aware_env.py    # Tax-aware liquidation environment (agent-ready interface)
 ├── tests/
-│   └── test_env_smoke.py   # Smoke/unit checks for traversal, actions, tax accounting
+│   ├── test_env_smoke.py   # Smoke/unit checks for traversal, actions, tax accounting
+│   ├── test_reward_c_lite.py  # Reward C-lite v1 checks
+│   └── test_reward_c_lite_v2.py  # Reward C-lite v2 checks
 ├── requirements.txt
 └── README.md
 ```
@@ -236,6 +276,7 @@ Main outputs:
 Tax profiles are versioned and reusable across the same episode parquet:
 
 - `data/tax_profiles/individual_tax_profiles_v1.json`
+- `configs/individual_tax_profiles_v1.yaml`
 - `data/tax_profiles/README.md`
 
 Currently included individual scenarios:
@@ -246,6 +287,8 @@ Currently included individual scenarios:
 - `top_bracket_individual`
 
 These are thesis simulation profiles, not a full legal/tax engine.
+Training and evaluation configs can reference the YAML profile file by
+`tax_profile.config_path` plus `tax_profile.profile_name`.
 
 ### 9) Run environment smoke/unit checks
 
@@ -264,7 +307,7 @@ The manual runner prints:
 - fixed action trajectories
 - per-step bookkeeping and tax-accounting columns for inspection
 
-### 11) Train the frozen Reward A DQN
+### 11) Train a configured DQN reward experiment
 
 Debug run:
 
@@ -272,65 +315,88 @@ Debug run:
 python scripts/train_dqn_reward_a_debug.py
 ```
 
-Full first Reward A run:
+Full runs use the config passed by `--config`:
 
 ```powershell
-python scripts/train_dqn_reward_a_full.py
+python scripts/train_dqn_reward_a_full.py --config configs/train_reward_a_v3.yaml
+python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v1.yaml
+python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v2.yaml
 ```
 
-Main local outputs:
-- `runs/train_reward_a_v1/final_model.pt`
-- `runs/train_reward_a_v1/episode_splits.csv`
-- `runs/train_reward_a_v1/train_metrics.csv`
-- `runs/train_reward_a_v1/eval_metrics.csv`
-- `runs/train_reward_a_v1/train_episode_rollouts.csv`
-- `runs/train_reward_a_v1/validation_episode_rollouts.csv`
-- `runs/train_reward_a_v1/training_summary.txt`
+Main local outputs for each run:
+- `final_model.pt`
+- `best_validation_model.pt`
+- `best_validation_summary.txt`
+- `episode_splits.csv`
+- `train_metrics.csv`
+- `eval_metrics.csv`
+- `train_episode_rollouts.csv`
+- `validation_episode_rollouts.csv`
+- `training_summary.txt`
 
-The current first full run used frozen Reward A,
-`A_after_tax_total_value_change`, and was capped by
-`data.max_episodes_train: 500` in `configs/train_reward_a_v1.yaml`.
+Best-model selection remains based on validation
+`mean_final_after_tax_total_value`, not the penalized training reward.
 
-### 12) Evaluate Reward A baselines
+### 12) Evaluate baselines
 
 ```powershell
-python scripts/evaluate_reward_a_baselines.py
+python scripts/evaluate_reward_a_baselines.py --config configs/train_reward_c_lite_v2.yaml
 ```
 
-This reads the frozen Reward A training config, the trained DQN artifact, and
-the saved episode split file. It evaluates validation and test episodes only.
+This reads the selected training config, loads `best_validation_model.pt` when
+available, and evaluates validation and test episodes only.
 
 Policies evaluated:
 - `trained_dqn_greedy`
+- `trained_dqn_thresholded_margin_0p001`
+- `trained_dqn_thresholded_margin_0p005`
+- `trained_dqn_thresholded_margin_0p010`
+- `trained_dqn_thresholded_margin_0p015`
+- `trained_dqn_thresholded_margin_0p020`
 - `hold_to_terminal`
 - `sell_immediately`
 - `sell_half_then_hold`
 - `sell_quarters_over_time`
 - `random_policy`
 
-Main local outputs:
-- `runs/train_reward_a_v1/baselines/baseline_config_used.yaml`
-- `runs/train_reward_a_v1/baselines/baseline_episode_metrics.csv`
-- `runs/train_reward_a_v1/baselines/baseline_step_rollouts.csv`
-- `runs/train_reward_a_v1/baselines/baseline_summary_by_policy.csv`
-- `runs/train_reward_a_v1/baselines/baseline_evaluation_summary.txt`
+Tax-transition baseline policies are intentionally excluded because episodes
+already end at the one-year tax threshold.
 
-### 13) Inspect learned Reward A DQN behavior
+Main local outputs under the run directory:
+- `baselines/baseline_config_used.yaml`
+- `baselines/baseline_episode_metrics.csv`
+- `baselines/baseline_step_rollouts.csv`
+- `baselines/baseline_summary_by_policy.csv`
+- `baselines/baseline_evaluation_summary.txt`
+
+### 13) Inspect learned policy behavior
 
 ```powershell
-python scripts/inspect_reward_a_policy_behavior.py
+python scripts/inspect_reward_a_policy_behavior.py --config configs/train_reward_c_lite_v2.yaml
 ```
 
 This is a build-and-train behavior inspection only. It reads the existing
 baseline CSV outputs and does not reload the model, rerun the environment, or
 recompute baseline evaluation.
 
-Main local outputs:
-- `runs/train_reward_a_v1/behavior_inspection/behavior_summary.txt`
-- `runs/train_reward_a_v1/behavior_inspection/dqn_action_distribution.csv`
-- `runs/train_reward_a_v1/behavior_inspection/dqn_first_cut_summary.csv`
-- `runs/train_reward_a_v1/behavior_inspection/dqn_episode_behavior.csv`
-- `runs/train_reward_a_v1/behavior_inspection/policy_behavior_comparison.csv`
+Main local outputs under the run directory:
+- `behavior_inspection/behavior_summary.txt`
+- `behavior_inspection/dqn_action_distribution.csv`
+- `behavior_inspection/dqn_first_cut_summary.csv`
+- `behavior_inspection/dqn_episode_behavior.csv`
+- `behavior_inspection/policy_behavior_comparison.csv`
+- `behavior_inspection/cooldown_penalty_summary.csv`
+- `behavior_inspection/transaction_penalty_summary.csv`
+- `behavior_inspection/early_selling_summary.csv`
+
+### 14) Write a reproducibility manifest
+
+```powershell
+python scripts/write_run_manifest.py --config configs/train_reward_c_lite_v2.yaml
+```
+
+Main local output:
+- `runs/train_reward_c_lite_v2_full/run_manifest.json`
 
 ---
 
@@ -361,12 +427,16 @@ Reward status:
   cumulative realized after-tax PnL plus after-tax liquidation value of
   remaining inventory.
 - terminal unsold inventory is liquidated with long-term tax treatment.
-- Reward v1 for the first training run is frozen as
-  `A_after_tax_total_value_change`. See `docs/reward_freeze_v1.md` and
-  `configs/reward_v1.yaml`.
-- First training config for frozen Reward A is available at
-  `configs/train_reward_a_v1.yaml`. The plan is documented in
-  `docs/training_plan_v1.md`.
+- automatic terminal liquidation is not penalized by Reward C-lite transaction
+  or cooldown penalties.
+- Reward C-lite v1 is Reward A minus a cooldown penalty for repeated
+  discretionary sales inside the configured cooldown window.
+- Reward C-lite v2 is Reward A minus both a transaction penalty for every
+  discretionary executed sale and the cooldown penalty for clustered sales.
+- Reward C-lite v2 uses `training.discount_factor_gamma: 1.0` and exploration
+  probabilities `[0.65, 0.20, 0.10, 0.04, 0.01]`.
+- Reward A, Reward C-lite v1, and Reward C-lite v2 are selected through
+  `reward.version` in the training config.
 
 Reset `info` includes at least:
 - `episode_id`, `current_row_ptr`, `date`
@@ -379,6 +449,9 @@ Step `info` includes at least:
 - tax/accounting fields (`tax_regime`, `applicable_tax_rate`, sale increments, cumulative totals)
 - Reward A fields (`previous_after_tax_total_value`, `after_tax_total_value`,
   `after_tax_liquidation_value_remaining`, `reward_A`)
+- Reward C-lite fields when configured (`reward_C_lite`, `reward_C_lite_v2`,
+  `transaction_penalty`, `cooldown_penalty`, `days_since_last_sale`,
+  `sale_count`)
 - terminal liquidation fields when applicable
 - episode pointers (`current_row_ptr`, `sale_row_ptr`) and `date`
 

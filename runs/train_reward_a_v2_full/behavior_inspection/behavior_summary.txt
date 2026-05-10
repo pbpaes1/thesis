@@ -1,0 +1,49 @@
+Reward A DQN Behavior Inspection
+config_path: configs/train_reward_a_v2.yaml
+tax_profile_name: mass_affluent_individual
+resolved_tax_profile: {'profile_name': 'mass_affluent_individual', 'short_term_rate': 0.1919, 'long_term_rate': 0.1018, 'niit_rate': 0.0, 'apply_niit': False}
+
+Inputs
+- runs/train_reward_a_v2_full/baselines/baseline_step_rollouts.csv
+- runs/train_reward_a_v2_full/baselines/baseline_episode_metrics.csv
+- runs/train_reward_a_v2_full/baselines/baseline_summary_by_policy.csv
+
+DQN action distribution
+     split  action_idx  action_fraction_requested  step_count  step_share  mean_executed_fraction  mean_reward  median_reward  mean_remaining_fraction_after_action  terminal_step_count
+      test           0                       0.00       31692    0.899804                0.000000     0.000595       0.000000                              0.658463                  365
+      test           1                       0.25        1949    0.055336                0.250000     0.002928       0.000580                              0.428681                  417
+      test           2                       0.50        1340    0.038045                0.449813     0.000720       0.000000                              0.234701                  585
+      test           3                       0.75         240    0.006814                0.585417     0.007374       0.002861                              0.091667                  152
+validation           0                       0.00       23179    0.875968                0.000000     0.000134       0.000000                              0.688446                  269
+validation           1                       0.25        1341    0.050678                0.250000     0.002327       0.000000                              0.428039                  299
+validation           2                       0.50        1485    0.056120                0.452862     0.002094       0.000194                              0.248653                  652
+validation           3                       0.75         456    0.017233                0.586623     0.001801       0.000202                              0.087171                  297
+
+DQN first-cut behavior
+     split  num_episodes  cut_frequency  no_cut_frequency  mean_first_cut_step  median_first_cut_step  p25_first_cut_step  p75_first_cut_step  mean_first_cut_fraction_executed  median_first_cut_fraction_executed  sell_immediately_frequency  terminal_liquidation_frequency  full_liquidation_frequency  mean_episode_steps  median_episode_steps
+      test          1519       0.886109          0.113891             7.493314                    4.0                 1.0                10.0                          0.380201                                0.25                    0.173140                        0.266623                         1.0           23.186965                  19.0
+validation          1517       0.893869          0.106131             6.351770                    3.0                 1.0                 9.0                          0.432338                                0.50                    0.218853                        0.216216                         1.0           17.442980                  14.0
+
+DQN episode behavior labels
+     split              behavior_label  episode_count  episode_share
+      test                delayed_exit           1083       0.712969
+      test      immediate_partial_exit            263       0.173140
+      test no_cut_terminal_liquidation            173       0.113891
+validation                delayed_exit           1024       0.675016
+validation      immediate_partial_exit            332       0.218853
+validation no_cut_terminal_liquidation            161       0.106131
+
+Policy behavior comparison
+     split             policy_name  num_episodes  mean_episode_total_reward  median_episode_total_reward  mean_final_after_tax_total_value  median_final_after_tax_total_value  mean_realized_after_tax_pnl  median_realized_after_tax_pnl  mean_episode_steps  median_episode_steps  terminal_liquidation_frequency  full_liquidation_frequency  cut_frequency  sell_immediately_frequency  mean_first_cut_step  median_first_cut_step  mean_first_cut_fraction_executed
+      test        hold_to_terminal          1519                   0.110042                     0.064151                          0.504345                            0.405272                     0.504345                       0.405272           82.314681                  67.0                        1.000000                         1.0       0.000000                    0.000000                  NaN                    NaN                               NaN
+      test           random_policy          1519                   0.002286                     0.000000                          0.396589                            0.280413                     0.396589                       0.280413            2.395655                   2.0                        0.052666                         1.0       0.989467                    0.795260             0.252828                    0.0                          0.609780
+      test     sell_half_then_hold          1519                   0.055021                     0.032076                          0.449324                            0.350763                     0.449324                       0.350763           82.314681                  67.0                        1.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.500000
+      test        sell_immediately          1519                   0.000000                     0.000000                          0.394303                            0.278295                     0.394303                       0.278295            1.000000                   1.0                        0.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          1.000000
+      test sell_quarters_over_time          1519                   0.002971                     0.001429                          0.397274                            0.283519                     0.397274                       0.283519            3.813035                   4.0                        0.076366                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.250000
+      test      trained_dqn_greedy          1519                   0.017975                     0.012046                          0.412279                            0.304169                     0.412279                       0.304169           23.186965                  19.0                        0.266623                         1.0       0.886109                    0.173140             7.493314                    4.0                          0.380201
+validation        hold_to_terminal          1517                   0.090020                     0.050848                          0.513235                            0.384871                     0.513235                       0.384871          102.146341                  87.0                        1.000000                         1.0       0.000000                    0.000000                  NaN                    NaN                               NaN
+validation           random_policy          1517                   0.001811                     0.000000                          0.425027                            0.279134                     0.425027                       0.279134            2.384970                   2.0                        0.045485                         1.0       0.991430                    0.793013             0.239362                    0.0                          0.627327
+validation     sell_half_then_hold          1517                   0.045010                     0.025424                          0.468225                            0.347694                     0.468225                       0.347694          102.146341                  87.0                        1.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.500000
+validation        sell_immediately          1517                   0.000000                     0.000000                          0.423216                            0.274078                     0.423216                       0.274078            1.000000                   1.0                        0.000000                         1.0       1.000000                    1.000000             0.000000                    0.0                          1.000000
+validation sell_quarters_over_time          1517                   0.001843                     0.000703                          0.425059                            0.281888                     0.425059                       0.281888            3.797627                   4.0                        0.088991                         1.0       1.000000                    1.000000             0.000000                    0.0                          0.250000
+validation      trained_dqn_greedy          1517                   0.006702                     0.005520                          0.429918                            0.300125                     0.429918                       0.300125           17.442980                  14.0                        0.216216                         1.0       0.893869                    0.218853             6.351770                    3.0                          0.432338

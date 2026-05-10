@@ -19,27 +19,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config.tax_profiles import load_tax_profile
 from src.environment.tax_aware_env import TaxAwareEnv
 
 
 STATE_COLUMNS_PATH = PROJECT_ROOT / "data" / "freeze" / "v1" / "allowed_state_columns_v1.json"
 PARQUET_PATH = PROJECT_ROOT / "data" / "episodes" / "drl_episodes.parquet"
+TAX_PROFILE_CONFIG_PATH = (
+    PROJECT_ROOT / "configs" / "individual_tax_profiles_v1.yaml"
+)
 
-STANDARD_PROFILE: dict[str, Any] = {
-    "profile_name": "mass_affluent_individual",
-    "short_term_rate": 0.24,
-    "long_term_rate": 0.15,
-    "niit_rate": 0.0,
-    "apply_niit": False,
-}
-
-HIGH_INCOME_PROFILE: dict[str, Any] = {
-    "profile_name": "high_income_individual",
-    "short_term_rate": 0.35,
-    "long_term_rate": 0.15,
-    "niit_rate": 0.038,
-    "apply_niit": True,
-}
+STANDARD_PROFILE: dict[str, Any] = load_tax_profile(
+    TAX_PROFILE_CONFIG_PATH,
+    "mass_affluent_individual",
+)
+HIGH_INCOME_PROFILE: dict[str, Any] = load_tax_profile(
+    TAX_PROFILE_CONFIG_PATH,
+    "high_income_individual",
+)
 
 TRAJECTORIES: list[tuple[str, list[float]]] = [
     ("Trajectory A (Hold, Hold, Sell 100%)", [0.0, 0.0, 1.0]),

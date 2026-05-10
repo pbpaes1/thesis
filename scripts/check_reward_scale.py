@@ -19,6 +19,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from src.config.tax_profiles import load_tax_profile
 from src.environment.tax_aware_env import TaxAwareEnv
 
 
@@ -26,35 +27,18 @@ MAX_EPISODES = 500
 SCHEMA_PATH = Path("data/freeze/v1/allowed_state_columns_v1.json")
 PARQUET_PATH = Path("data/episodes/drl_episodes.parquet")
 OUTPUT_DIR = Path("reports/reward_scale")
+TAX_PROFILE_CONFIG_PATH = (
+    PROJECT_ROOT / "configs" / "individual_tax_profiles_v1.yaml"
+)
+TAX_PROFILE_NAMES = (
+    "tax_free",
+    "mass_affluent_individual",
+    "high_income_individual",
+)
 
-STANDARD_PROFILE = {
-    "profile_name": "mass_affluent_individual",
-    "short_term_rate": 0.24,
-    "long_term_rate": 0.15,
-    "niit_rate": 0.0,
-    "apply_niit": False,
-}
-
-TAX_FREE_PROFILE = {
-    "profile_name": "tax_free",
-    "short_term_rate": 0.0,
-    "long_term_rate": 0.0,
-    "niit_rate": 0.0,
-    "apply_niit": False,
-}
-
-HIGH_INCOME_PROFILE = {
-    "profile_name": "high_income_individual",
-    "short_term_rate": 0.35,
-    "long_term_rate": 0.15,
-    "niit_rate": 0.038,
-    "apply_niit": True,
-}
-
-TAX_PROFILES = (
-    TAX_FREE_PROFILE,
-    STANDARD_PROFILE,
-    HIGH_INCOME_PROFILE,
+TAX_PROFILES = tuple(
+    load_tax_profile(TAX_PROFILE_CONFIG_PATH, profile_name)
+    for profile_name in TAX_PROFILE_NAMES
 )
 
 POLICY_NAMES = (

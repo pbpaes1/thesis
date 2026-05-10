@@ -1,8 +1,8 @@
 run:
-  name: train_reward_a_v2_full
+  name: train_reward_c_lite_v2_full
   phase: build_and_train
-  description: Reward A full training run with hold-biased exploration.
-  status: ready_for_debug_training
+  description: Reward C-lite v2 full training run using Reward A minus transaction and cooldown penalties, gamma 1.0, and more hold-biased exploration.
+  status: ready_for_full_training
 
 environment:
   class_path: src.environment.tax_aware_env.TaxAwareEnv
@@ -19,17 +19,30 @@ environment:
     tax_regime: long_term
 
 reward:
-  version: A_after_tax_total_value_change
-  frozen_config_path: configs/reward_v1.yaml
-  freeze_document_path: docs/reward_freeze_v1.md
+  version: C_lite_v2_after_tax_value_change_minus_transaction_and_cooldown_penalty
   use_environment_reward: true
   assert_reward_version: true
-  expected_info_reward_version: A_after_tax_total_value_change
+  expected_info_reward_version: C_lite_v2_after_tax_value_change_minus_transaction_and_cooldown_penalty
+  base_reward_version: A_after_tax_total_value_change
   use_drawdown_penalty: false
-  use_cooldown_penalty: false
+  use_transaction_penalty: true
+  use_cooldown_penalty: true
   use_explicit_tax_saving_bonus: false
   use_reward_clipping: false
   use_reward_normalization: false
+  transaction_penalty:
+    enabled: true
+    lambda_transaction: 0.0010
+    scale_by_executed_fraction: true
+    apply_to_first_sale: true
+    apply_to_automatic_terminal_liquidation: false
+  cooldown_penalty:
+    enabled: true
+    lambda_cooldown: 0.0025
+    cooldown_days: 20
+    scale_by_executed_fraction: true
+    penalize_first_sale: false
+    apply_to_automatic_terminal_liquidation: false
 
 tax_profile:
   profile_name: mass_affluent_individual
@@ -65,11 +78,11 @@ action_space:
 exploration:
   random_action_policy: hold_biased
   action_probabilities:
-    - 0.50  # action 0: hold
-    - 0.20  # action 1: sell 25%
-    - 0.15  # action 2: sell 50%
-    - 0.10  # action 3: sell 75%
-    - 0.05  # action 4: sell 100%
+    - 0.65
+    - 0.20
+    - 0.10
+    - 0.04
+    - 0.01
 
 splits:
   method: chronological_by_episode
@@ -101,7 +114,8 @@ algorithm:
 training:
   seed: 42
   device: auto
-  debug_first: true
+  debug_first: false
+  num_epochs: 3
   debug:
     episodes: 20
     max_steps_per_episode: null
@@ -109,19 +123,23 @@ training:
   full_run:
     episodes: null
     max_steps_per_episode: null
-  discount_factor_gamma: 0.99
+  discount_factor_gamma: 1.0
   learning_rate: 0.0001
   optimizer: adam
   epsilon_schedule:
     start: 1.0
     end: 0.05
-    decay_steps: 10000
+    decay_steps: 25000
   gradient_clip_norm: 10.0
-  checkpoint_frequency_episodes: 50
+  checkpoint_frequency_episodes: 500
+  save_best_validation_model: true
+  best_model_metric: mean_final_after_tax_total_value
+  best_model_mode: max
 
 evaluation:
   evaluate_during_training: true
-  evaluation_frequency_episodes: 25
+  evaluation_frequency_episodes: 500
+  max_eval_episodes: 500
   deterministic_policy: true
   benchmark_policies:
     - hold_to_terminal
@@ -144,7 +162,7 @@ evaluation:
     reward_version_matches_config: true
 
 logging:
-  output_dir: runs/train_reward_a_v2_full
+  output_dir: runs/train_reward_c_lite_v2_full
   save_config_copy: true
   save_training_metrics: true
   save_episode_rollouts: true
@@ -152,11 +170,12 @@ logging:
   save_final_model: true
   tensorboard:
     enabled: false
-    log_dir: runs/train_reward_a_v1/tensorboard
+    log_dir: runs/train_reward_c_lite_v2_full/tensorboard
   csv_logs:
-    train_metrics: runs/train_reward_a_v1/train_metrics.csv
-    eval_metrics: runs/train_reward_a_v1/eval_metrics.csv
-    episode_rollouts: runs/train_reward_a_v1/episode_rollouts.csv
+    train_metrics: runs/train_reward_c_lite_v2_full/train_metrics.csv
+    eval_metrics: runs/train_reward_c_lite_v2_full/eval_metrics.csv
+    train_episode_rollouts: runs/train_reward_c_lite_v2_full/train_episode_rollouts.csv
+    validation_episode_rollouts: runs/train_reward_c_lite_v2_full/validation_episode_rollouts.csv
 
 reproducibility:
   python_seed: 42
@@ -167,7 +186,7 @@ reproducibility:
   record_config_hash: true
 
 notes:
-  - Reward A is frozen for the first training run.
-  - Reward B and Reward C are deferred until after baseline Reward A behavior is evaluated.
-  - This config is for training preparation only; it should not trigger training by itself.
-  - The first run should be a small debug run before a full training run.
+  - Reward C-lite v2 is Reward A minus transaction and cooldown penalties.
+  - Gamma is set to 1.0 for an episodic final-value liquidation objective.
+  - Reward B, drawdown penalties, and explicit tax-saving bonuses are not enabled.
+  - Best validation model selection remains based on mean final after-tax total value.

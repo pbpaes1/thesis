@@ -2,7 +2,7 @@ run:
   name: train_reward_a_v2_full
   phase: build_and_train
   description: Reward A full training run with hold-biased exploration.
-  status: ready_for_debug_training
+  status: ready_for_full_training
 
 environment:
   class_path: src.environment.tax_aware_env.TaxAwareEnv
@@ -115,13 +115,14 @@ training:
   epsilon_schedule:
     start: 1.0
     end: 0.05
-    decay_steps: 10000
+    decay_steps: 47500
   gradient_clip_norm: 10.0
   checkpoint_frequency_episodes: 50
 
 evaluation:
   evaluate_during_training: true
-  evaluation_frequency_episodes: 25
+  evaluation_frequency_episodes: 250
+  max_eval_episodes: 500
   deterministic_policy: true
   benchmark_policies:
     - hold_to_terminal
@@ -152,11 +153,11 @@ logging:
   save_final_model: true
   tensorboard:
     enabled: false
-    log_dir: runs/train_reward_a_v1/tensorboard
+    log_dir: runs/train_reward_a_v2_full/tensorboard
   csv_logs:
-    train_metrics: runs/train_reward_a_v1/train_metrics.csv
-    eval_metrics: runs/train_reward_a_v1/eval_metrics.csv
-    episode_rollouts: runs/train_reward_a_v1/episode_rollouts.csv
+    train_metrics: runs/train_reward_a_v2_full/train_metrics.csv
+    eval_metrics: runs/train_reward_a_v2_full/eval_metrics.csv
+    episode_rollouts: runs/train_reward_a_v2_full/episode_rollouts.csv
 
 reproducibility:
   python_seed: 42

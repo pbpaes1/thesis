@@ -180,6 +180,8 @@ class TestTaxAwareEnvSmoke(unittest.TestCase):
         )
         self.assertAlmostEqual(info["reward"], reward, places=12)
         self.assertAlmostEqual(info["reward_A"], reward, places=12)
+        self.assertAlmostEqual(info["reward_C_lite"], reward, places=12)
+        self.assertAlmostEqual(info["cooldown_penalty"], 0.0, places=12)
         self.assertAlmostEqual(
             reward,
             info["after_tax_total_value"]
@@ -504,6 +506,8 @@ class TestTaxAwareEnvRewardA(unittest.TestCase):
         )
         self.assertAlmostEqual(info["reward"], reward, places=12)
         self.assertAlmostEqual(info["reward_A"], reward, places=12)
+        self.assertAlmostEqual(info["reward_C_lite"], reward, places=12)
+        self.assertAlmostEqual(info["cooldown_penalty"], 0.0, places=12)
         self.assertAlmostEqual(
             reward,
             info["after_tax_total_value"]
