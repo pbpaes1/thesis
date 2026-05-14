@@ -3,7 +3,7 @@
   "baseline_command": "python scripts/evaluate_reward_a_baselines.py --config configs/train_reward_c_lite_v1.yaml",
   "behavior_inspection_command": "python scripts/inspect_reward_a_policy_behavior.py --config configs/train_reward_c_lite_v1.yaml",
   "best_validation_model_path": "runs/train_reward_c_lite_v1_full/best_validation_model.pt",
-  "config_hash": "7985fb37aa0d0ff306cb3b9699e73665e91a15fa892b9975729f0c9c844224de",
+  "config_hash": "65543cebf08d128d7ca0f5a6b5eeb751c6dab05e62b6aaf51f38a7ac09c73726",
   "config_path": "configs/train_reward_c_lite_v1.yaml",
   "created_artifacts": [
     "runs/train_reward_c_lite_v1_full/baseline_exit_code.txt",
@@ -20,7 +20,9 @@
     "runs/train_reward_c_lite_v1_full/behavior_inspection/dqn_action_distribution.csv",
     "runs/train_reward_c_lite_v1_full/behavior_inspection/dqn_episode_behavior.csv",
     "runs/train_reward_c_lite_v1_full/behavior_inspection/dqn_first_cut_summary.csv",
+    "runs/train_reward_c_lite_v1_full/behavior_inspection/early_selling_summary.csv",
     "runs/train_reward_c_lite_v1_full/behavior_inspection/policy_behavior_comparison.csv",
+    "runs/train_reward_c_lite_v1_full/behavior_inspection/transaction_penalty_summary.csv",
     "runs/train_reward_c_lite_v1_full/behavior_stderr.log",
     "runs/train_reward_c_lite_v1_full/behavior_stdout.log",
     "runs/train_reward_c_lite_v1_full/best_validation_model.pt",
@@ -72,6 +74,7 @@
     "runs/train_reward_c_lite_v1_full/episode_splits.csv",
     "runs/train_reward_c_lite_v1_full/eval_metrics.csv",
     "runs/train_reward_c_lite_v1_full/final_model.pt",
+    "runs/train_reward_c_lite_v1_full/run_manifest.json",
     "runs/train_reward_c_lite_v1_full/train_episode_rollouts.csv",
     "runs/train_reward_c_lite_v1_full/train_metrics.csv",
     "runs/train_reward_c_lite_v1_full/training_exit_code.txt",
@@ -80,12 +83,21 @@
     "runs/train_reward_c_lite_v1_full/training_summary.txt",
     "runs/train_reward_c_lite_v1_full/validation_episode_rollouts.csv"
   ],
-  "created_at_utc": "2026-05-09T15:06:21.280662+00:00",
+  "created_at_utc": "2026-05-12T12:12:21.325113+00:00",
   "dataset_file_size": 187101387,
   "dataset_hash": "0adf5bcb50da30314b19c04db1ca1e122ca6f823087d4a8025a5ecbe6537570a",
   "dataset_path": "data/episodes/drl_episodes.parquet",
+  "discount_factor_gamma": 0.99,
+  "exploitation_policy": "greedy",
+  "exploration_action_probabilities": [
+    0.5,
+    0.2,
+    0.15,
+    0.1,
+    0.05
+  ],
   "final_model_path": "runs/train_reward_c_lite_v1_full/final_model.pt",
-  "git_commit_hash": "67fb6fb1ce0389dff62e520ff94591133075d07c",
+  "git_commit_hash": "a5536f60f02541033fde43138d15b2d494b8f221",
   "git_dirty_status": "dirty",
   "package_versions": {
     "numpy": "2.2.6",
@@ -107,5 +119,6 @@
     "profile_name": "mass_affluent_individual",
     "short_term_rate": 0.1919
   },
+  "thresholded_greedy_margin": null,
   "training_command": "python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v1.yaml"
 }

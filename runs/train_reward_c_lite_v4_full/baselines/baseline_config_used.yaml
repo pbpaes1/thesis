@@ -1,7 +1,7 @@
-source_config_path: configs/train_reward_c_lite_v1.yaml
-model_path: runs/train_reward_c_lite_v1_full/best_validation_model.pt
-episode_splits_path: runs/train_reward_c_lite_v1_full/episode_splits.csv
-output_dir: runs/train_reward_c_lite_v1_full/baselines
+source_config_path: configs/train_reward_c_lite_v4.yaml
+model_path: runs/train_reward_c_lite_v4_full/best_validation_model.pt
+episode_splits_path: runs/train_reward_c_lite_v4_full/episode_splits.csv
+output_dir: runs/train_reward_c_lite_v4_full/baselines
 reward_version: C_lite_after_tax_value_change_minus_cooldown_penalty
 max_validation_episodes: null
 max_test_episodes: null
@@ -25,10 +25,10 @@ resolved_tax_profile:
   apply_niit: false
 training_config:
   run:
-    name: train_reward_c_lite_v1_full
+    name: train_reward_c_lite_v4_full
     phase: build_and_train
-    description: Reward C-lite full training run using Reward A minus cooldown trading
-      penalty.
+    description: Reward C-lite v4 full training run using C-lite v1 reward with a
+      higher thresholded-greedy margin before the first sale.
     status: ready_for_full_training
   environment:
     class_path: src.environment.tax_aware_env.TaxAwareEnv
@@ -50,6 +50,7 @@ training_config:
     expected_info_reward_version: C_lite_after_tax_value_change_minus_cooldown_penalty
     base_reward_version: A_after_tax_total_value_change
     use_drawdown_penalty: false
+    use_transaction_penalty: false
     use_cooldown_penalty: true
     use_explicit_tax_saving_bonus: false
     use_reward_clipping: false
@@ -146,6 +147,13 @@ training_config:
     save_best_validation_model: true
     best_model_metric: mean_final_after_tax_total_value
     best_model_mode: max
+    exploitation_policy: thresholded_greedy
+    thresholded_greedy:
+      enabled: true
+      margin: 0.02
+      first_sale_margin: 0.04
+      hold_action_fraction: 0.0
+      use_strict_greater_than: true
   evaluation:
     evaluate_during_training: true
     evaluation_frequency_episodes: 500
@@ -171,7 +179,7 @@ training_config:
       no_infinite_rewards: true
       reward_version_matches_config: true
   logging:
-    output_dir: runs/train_reward_c_lite_v1_full
+    output_dir: runs/train_reward_c_lite_v4_full
     save_config_copy: true
     save_training_metrics: true
     save_episode_rollouts: true
@@ -179,12 +187,12 @@ training_config:
     save_final_model: true
     tensorboard:
       enabled: false
-      log_dir: runs/train_reward_c_lite_v1_full/tensorboard
+      log_dir: runs/train_reward_c_lite_v4_full/tensorboard
     csv_logs:
-      train_metrics: runs/train_reward_c_lite_v1_full/train_metrics.csv
-      eval_metrics: runs/train_reward_c_lite_v1_full/eval_metrics.csv
-      train_episode_rollouts: runs/train_reward_c_lite_v1_full/train_episode_rollouts.csv
-      validation_episode_rollouts: runs/train_reward_c_lite_v1_full/validation_episode_rollouts.csv
+      train_metrics: runs/train_reward_c_lite_v4_full/train_metrics.csv
+      eval_metrics: runs/train_reward_c_lite_v4_full/eval_metrics.csv
+      train_episode_rollouts: runs/train_reward_c_lite_v4_full/train_episode_rollouts.csv
+      validation_episode_rollouts: runs/train_reward_c_lite_v4_full/validation_episode_rollouts.csv
   reproducibility:
     python_seed: 42
     numpy_seed: 42
@@ -193,6 +201,8 @@ training_config:
     record_git_commit: true
     record_config_hash: true
   notes:
-  - Reward C-lite is Reward A minus a cooldown penalty for clustered repeated sales.
-  - Reward B, drawdown penalties, and explicit tax-saving bonuses are not enabled.
+  - Reward C-lite v4 keeps the C-lite v1 reward and raises only the thresholded-greedy
+    margin before the first discretionary sale.
+  - Reward B, drawdown penalties, transaction penalties, and explicit tax-saving bonuses
+    are not enabled.
   - Best validation model selection remains based on mean final after-tax total value.

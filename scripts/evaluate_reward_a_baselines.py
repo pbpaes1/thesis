@@ -70,6 +70,27 @@ THRESHOLDED_DQN_MARGINS = {
     "trained_dqn_thresholded_margin_0p020": 0.020,
 }
 
+
+def _format_margin_token(value: float) -> str:
+    return f"{float(value):.3f}".replace(".", "p")
+
+
+def _parse_margin_token(token: str) -> float:
+    return float(token.replace("p", "."))
+
+
+def first_sale_thresholded_policy_name(
+    first_sale_margin: float,
+    margin: float,
+) -> str:
+    return (
+        "trained_dqn_first_sale_margin_"
+        f"{_format_margin_token(first_sale_margin)}"
+        "_normal_"
+        f"{_format_margin_token(margin)}"
+    )
+
+
 STEP_ROLLOUT_COLUMNS = [
     "split",
     "policy_name",
@@ -106,7 +127,10 @@ STEP_ROLLOUT_COLUMNS = [
     "after_tax_liquidation_tax_regime",
     "is_automatic_terminal_liquidation",
     "terminal_liquidation_executed",
+    "terminal_liquidation_tax_rate",
+    "terminal_liquidation_pre_tax_increment",
     "terminal_liquidation_tax_paid",
+    "terminal_liquidation_after_tax_increment",
     "done",
 ]
 
@@ -146,6 +170,9 @@ EPISODE_METRIC_COLUMNS = [
     "total_position_sold_long_term",
     "mean_effective_tax_rate_on_sales",
     "total_tax_paid",
+    "total_positive_taxable_pre_tax_increment",
+    "terminal_liquidation_fraction",
+    "total_terminal_liquidation_tax_paid",
     "total_transaction_penalty",
     "total_cooldown_penalty",
     "num_discretionary_sales",
@@ -690,6 +717,119 @@ def threshold_margin_for_policy(policy_name: str) -> float | None:
     return None
 
 
+def first_sale_threshold_settings_for_policy(
+    policy_name: str,
+) -> tuple[float, float] | None:
+    prefix = "trained_dqn_first_sale_margin_"
+    normal_separator = "_normal_"
+    if not policy_name.startswith(prefix):
+        return None
+
+    remainder = policy_name.removeprefix(prefix)
+    if normal_separator not in remainder:
+        raise ValueError(
+            f"Unknown first-sale thresholded DQN policy {policy_name!r}."
+        )
+    first_sale_token, margin_token = remainder.split(normal_separator, maxsplit=1)
+    first_sale_margin = _parse_margin_token(first_sale_token)
+    margin = _parse_margin_token(margin_token)
+    if margin < 0.0 or first_sale_margin < 0.0:
+        raise ValueError(
+            f"First-sale thresholded DQN policy {policy_name!r} has a negative margin."
+        )
+    return margin, first_sale_margin
+
+
+def threshold_settings_for_policy(
+    policy_name: str,
+) -> tuple[float, float | None] | None:
+    margin = threshold_margin_for_policy(policy_name)
+    if margin is not None:
+        return margin, None
+    first_sale_settings = first_sale_threshold_settings_for_policy(policy_name)
+    if first_sale_settings is not None:
+        return first_sale_settings
+    return None
+
+
+def resolve_evaluation_policy_names(config: dict) -> list[str]:
+    policy_names = list(POLICY_NAMES)
+    evaluation_config = config.get("evaluation", {})
+    if not isinstance(evaluation_config, dict):
+        raise ValueError("evaluation must be a mapping when provided.")
+
+    first_sale_config = evaluation_config.get("first_sale_margin_policies", {}) or {}
+    if not isinstance(first_sale_config, dict):
+        raise ValueError(
+            "evaluation.first_sale_margin_policies must be a mapping when provided."
+        )
+    if bool(first_sale_config.get("enabled", False)):
+        margin = float(first_sale_config.get("margin", 0.020))
+        if margin < 0.0:
+            raise ValueError(
+                "evaluation.first_sale_margin_policies.margin must be non-negative."
+            )
+        first_sale_margins = first_sale_config.get("first_sale_margins")
+        if first_sale_margins is None:
+            raise ValueError(
+                "evaluation.first_sale_margin_policies.first_sale_margins is "
+                "required when enabled=true."
+            )
+        if not isinstance(first_sale_margins, list):
+            raise ValueError(
+                "evaluation.first_sale_margin_policies.first_sale_margins must be a list."
+            )
+        for first_sale_margin in first_sale_margins:
+            first_sale_margin = float(first_sale_margin)
+            if first_sale_margin < 0.0:
+                raise ValueError(
+                    "evaluation.first_sale_margin_policies.first_sale_margins "
+                    "must be non-negative."
+                )
+            policy_name = first_sale_thresholded_policy_name(
+                first_sale_margin=first_sale_margin,
+                margin=margin,
+            )
+            if policy_name not in policy_names:
+                policy_names.append(policy_name)
+
+    return policy_names
+
+
+def is_before_first_discretionary_sale(env: TaxAwareEnv) -> bool:
+    sold_fraction = getattr(env, "_sold_fraction", None)
+    if sold_fraction is not None:
+        return bool(np.isclose(float(sold_fraction), 0.0, rtol=0.0, atol=1e-12))
+
+    remaining_fraction = getattr(env, "_remaining_fraction", None)
+    if remaining_fraction is not None:
+        return bool(np.isclose(float(remaining_fraction), 1.0, rtol=0.0, atol=1e-12))
+
+    sale_count = getattr(env, "_sale_count", None)
+    if sale_count is not None:
+        return int(sale_count) == 0
+
+    return False
+
+
+def active_threshold_margin(
+    env: TaxAwareEnv,
+    margin: float,
+    first_sale_margin: float | None = None,
+) -> float:
+    if margin < 0.0:
+        raise ValueError(f"Threshold margin must be non-negative, got {margin}.")
+    if first_sale_margin is None:
+        return float(margin)
+    if first_sale_margin < 0.0:
+        raise ValueError(
+            f"First-sale threshold margin must be non-negative, got {first_sale_margin}."
+        )
+    if is_before_first_discretionary_sale(env):
+        return float(first_sale_margin)
+    return float(margin)
+
+
 def select_dqn_thresholded_greedy_action(
     q_net: QNetwork,
     obs: np.ndarray,
@@ -697,9 +837,15 @@ def select_dqn_thresholded_greedy_action(
     device: torch.device,
     env: TaxAwareEnv,
     margin: float,
+    first_sale_margin: float | None = None,
 ) -> int:
     if margin < 0.0:
         raise ValueError(f"Threshold margin must be non-negative, got {margin}.")
+    active_margin = active_threshold_margin(
+        env=env,
+        margin=margin,
+        first_sale_margin=first_sale_margin,
+    )
 
     with torch.no_grad():
         obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
@@ -723,7 +869,7 @@ def select_dqn_thresholded_greedy_action(
     hold_q = float(q_values[hold_idx])
     best_sell_q = float(q_values[best_sell_idx])
 
-    if best_sell_q > hold_q + float(margin):
+    if best_sell_q > hold_q + active_margin:
         return int(best_sell_idx)
     return int(hold_idx)
 
@@ -758,12 +904,14 @@ def evaluate_policy_on_episodes(
     rng: np.random.Generator,
     q_net: QNetwork | None,
     device: torch.device,
+    policy_names: list[str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
-    if policy_name not in POLICY_NAMES:
+    valid_policy_names = POLICY_NAMES if policy_names is None else policy_names
+    threshold_settings = threshold_settings_for_policy(policy_name)
+    if policy_name not in valid_policy_names and threshold_settings is None:
         raise ValueError(f"Unknown policy_name={policy_name!r}.")
-    threshold_margin = threshold_margin_for_policy(policy_name)
     if (
-        policy_name == "trained_dqn_greedy" or threshold_margin is not None
+        policy_name == "trained_dqn_greedy" or threshold_settings is not None
     ) and q_net is None:
         raise ValueError(f"{policy_name} requires a loaded QNetwork.")
 
@@ -818,6 +966,9 @@ def evaluate_policy_on_episodes(
         total_tax_paid = 0.0
         total_discretionary_sale_tax_paid = 0.0
         total_positive_discretionary_sale_pre_tax = 0.0
+        total_positive_terminal_liquidation_pre_tax = 0.0
+        total_terminal_liquidation_tax_paid = 0.0
+        terminal_liquidation_fraction = 0.0
         num_discretionary_sales = 0
         num_cooldown_penalized_sales = 0
         if env._current_episode_df is None:
@@ -844,7 +995,8 @@ def evaluate_policy_on_episodes(
                     num_actions=num_actions,
                     device=device,
                 )
-            elif threshold_margin is not None:
+            elif threshold_settings is not None:
+                threshold_margin, first_sale_margin = threshold_settings
                 action_idx = select_dqn_thresholded_greedy_action(
                     q_net=q_net,
                     obs=obs,
@@ -852,6 +1004,7 @@ def evaluate_policy_on_episodes(
                     device=device,
                     env=env,
                     margin=threshold_margin,
+                    first_sale_margin=first_sale_margin,
                 )
             else:
                 action_fraction = baseline_action_fraction(
@@ -926,10 +1079,30 @@ def evaluate_policy_on_episodes(
                     total_positive_discretionary_sale_pre_tax += (
                         realized_pre_tax_increment
                     )
-            total_tax_paid += float(info.get("tax_paid", 0.0) or 0.0)
-            total_tax_paid += float(
+            terminal_tax_paid = float(
                 info.get("terminal_liquidation_tax_paid", 0.0) or 0.0
             )
+            terminal_pre_tax_increment = float(
+                info.get("terminal_liquidation_pre_tax_increment", 0.0) or 0.0
+            )
+            if bool(info.get("terminal_liquidation_executed", False)):
+                terminal_fraction = float(
+                    max(
+                        0.0,
+                        1.0
+                        - total_position_sold_short_term
+                        - total_position_sold_long_term,
+                    )
+                )
+                terminal_liquidation_fraction += terminal_fraction
+                total_position_sold_long_term += terminal_fraction
+                total_terminal_liquidation_tax_paid += terminal_tax_paid
+                if terminal_pre_tax_increment > 0.0:
+                    total_positive_terminal_liquidation_pre_tax += (
+                        terminal_pre_tax_increment
+                    )
+            total_tax_paid += float(info.get("tax_paid", 0.0) or 0.0)
+            total_tax_paid += terminal_tax_paid
 
             step_rollout_rows.append(
                 {
@@ -994,8 +1167,17 @@ def evaluate_policy_on_episodes(
                     "terminal_liquidation_executed": info.get(
                         "terminal_liquidation_executed"
                     ),
+                    "terminal_liquidation_tax_rate": info.get(
+                        "terminal_liquidation_tax_rate"
+                    ),
+                    "terminal_liquidation_pre_tax_increment": info.get(
+                        "terminal_liquidation_pre_tax_increment"
+                    ),
                     "terminal_liquidation_tax_paid": info.get(
                         "terminal_liquidation_tax_paid"
+                    ),
+                    "terminal_liquidation_after_tax_increment": info.get(
+                        "terminal_liquidation_after_tax_increment"
                     ),
                     "done": bool(done),
                 }
@@ -1118,12 +1300,15 @@ def evaluate_policy_on_episodes(
             else bool(terminal_or_last_date >= episode_tax_transition_date)
         )
         sold_before_tax_transition_flag = bool(total_position_sold_short_term > 0.0)
+        total_positive_taxable_pre_tax_increment = float(
+            total_positive_discretionary_sale_pre_tax
+            + total_positive_terminal_liquidation_pre_tax
+        )
         mean_effective_tax_rate_on_sales = (
             float(
-                total_discretionary_sale_tax_paid
-                / total_positive_discretionary_sale_pre_tax
+                total_tax_paid / total_positive_taxable_pre_tax_increment
             )
-            if total_positive_discretionary_sale_pre_tax > 0.0
+            if total_positive_taxable_pre_tax_increment > 0.0
             else 0.0
         )
         episode_metric_rows.append(
@@ -1195,6 +1380,15 @@ def evaluate_policy_on_episodes(
                     mean_effective_tax_rate_on_sales
                 ),
                 "total_tax_paid": float(total_tax_paid),
+                "total_positive_taxable_pre_tax_increment": (
+                    total_positive_taxable_pre_tax_increment
+                ),
+                "terminal_liquidation_fraction": float(
+                    terminal_liquidation_fraction
+                ),
+                "total_terminal_liquidation_tax_paid": float(
+                    total_terminal_liquidation_tax_paid
+                ),
                 "total_transaction_penalty": float(
                     episode_total_transaction_penalty
                 ),
@@ -1438,6 +1632,7 @@ def main() -> None:
     config_path = resolve_project_path(args.config)
     config = load_yaml(config_path)
     _validate_reward_config(config)
+    policy_names = resolve_evaluation_policy_names(config)
     expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
     output_dir = resolve_project_path(_require(config, "logging.output_dir"))
     baselines_dir = output_dir / "baselines"
@@ -1497,7 +1692,7 @@ def main() -> None:
             "reward_version": expected_reward_version,
             "max_validation_episodes": MAX_VALIDATION_EPISODES,
             "max_test_episodes": MAX_TEST_EPISODES,
-            "policies_evaluated": POLICY_NAMES,
+            "policies_evaluated": policy_names,
             "resolved_tax_profile": resolved_tax_profile,
             "training_config": config,
         },
@@ -1508,7 +1703,7 @@ def main() -> None:
     episode_metric_rows: list[dict[str, Any]] = []
     step_rollout_rows: list[dict[str, Any]] = []
 
-    for policy_name in POLICY_NAMES:
+    for policy_name in policy_names:
         for split_name, episode_ids in (
             ("validation", validation_ids),
             ("test", test_ids),
@@ -1526,6 +1721,7 @@ def main() -> None:
                 rng=rng,
                 q_net=q_net,
                 device=device,
+                policy_names=policy_names,
             )
             episode_metric_rows.extend(policy_episode_rows)
             step_rollout_rows.extend(policy_step_rows)
@@ -1560,7 +1756,7 @@ def main() -> None:
             "resolved_tax_profile": resolved_tax_profile,
             "model_path": _relative_project_path(model_path),
             "episode_splits_path": _relative_project_path(episode_splits_path),
-            "policies_evaluated": POLICY_NAMES,
+            "policies_evaluated": policy_names,
         }
     )
     summary_text = build_summary_text(summary_df, episode_metrics_df)

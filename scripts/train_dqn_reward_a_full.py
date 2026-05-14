@@ -13,6 +13,7 @@ import math
 import random
 import sys
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +64,9 @@ TRAIN_METRIC_COLUMNS = [
     "episode_id",
     "step_in_episode",
     "epsilon",
+    "exploitation_policy",
+    "thresholded_greedy_margin",
+    "was_thresholded_to_hold",
     "loss",
     "replay_buffer_size",
     "mean_q_value",
@@ -104,6 +108,15 @@ TRAIN_ROLLOUT_COLUMNS = [
     "action_idx",
     "action_fraction_requested",
     "action_fraction_executed",
+    "raw_greedy_action_idx",
+    "raw_greedy_action_fraction",
+    "selected_action_idx",
+    "selected_action_fraction",
+    "hold_q",
+    "best_sell_q",
+    "q_margin",
+    "thresholded_greedy_margin",
+    "was_thresholded_to_hold",
     "reward",
     "reward_A",
     "reward_C_lite",
@@ -511,6 +524,20 @@ class ReplayBuffer:
         return len(self._buffer)
 
 
+@dataclass(frozen=True)
+class TrainingActionSelection:
+    action_idx: int
+    raw_greedy_action_idx: int | None
+    raw_greedy_action_fraction: float | None
+    selected_action_idx: int
+    selected_action_fraction: float
+    hold_q: float | None
+    best_sell_q: float | None
+    q_margin: float | None
+    thresholded_greedy_margin: float | None
+    was_thresholded_to_hold: bool
+
+
 def load_exploration_action_probabilities(
     config: dict,
     num_actions: int,
@@ -565,6 +592,233 @@ def load_exploration_action_probabilities(
     return probs
 
 
+def _compute_q_values(
+    q_net: QNetwork,
+    obs: np.ndarray,
+    num_actions: int,
+    device: torch.device,
+) -> np.ndarray:
+    with torch.no_grad():
+        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
+        q_values_tensor = q_net(obs_tensor)
+        if q_values_tensor.shape != (1, num_actions):
+            raise AssertionError(
+                f"QNetwork output shape {tuple(q_values_tensor.shape)} does not match "
+                f"(1, {num_actions})."
+            )
+        if not torch.isfinite(q_values_tensor).all():
+            raise AssertionError("Q-values contain NaN or infinite values.")
+        q_values = q_values_tensor.squeeze(0).detach().cpu().numpy().astype(float)
+    if q_values.shape != (num_actions,):
+        raise AssertionError(
+            f"Q-values shape {q_values.shape} does not match ({num_actions},)."
+        )
+    if not np.isfinite(q_values).all():
+        raise AssertionError("Q-values contain NaN or infinite values.")
+    return q_values
+
+
+def _thresholded_greedy_details(
+    q_values: np.ndarray,
+    num_actions: int,
+    env: TaxAwareEnv,
+    margin: float,
+    first_sale_margin: float | None = None,
+) -> dict[str, int | float | bool]:
+    if margin < 0.0:
+        raise ValueError(f"Threshold margin must be non-negative, got {margin}.")
+    active_margin = thresholded_greedy_active_margin(
+        env=env,
+        margin=margin,
+        first_sale_margin=first_sale_margin,
+    )
+    if q_values.shape != (num_actions,):
+        raise AssertionError(
+            f"Q-values shape {q_values.shape} does not match ({num_actions},)."
+        )
+    if not np.isfinite(q_values).all():
+        raise AssertionError("Q-values contain NaN or infinite values.")
+
+    hold_idx = action_index_for_fraction(env, 0.0)
+    sell_indices = [idx for idx in range(num_actions) if idx != hold_idx]
+    if not sell_indices:
+        raise ValueError("Thresholded greedy policy requires at least one sell action.")
+
+    best_sell_idx = max(sell_indices, key=lambda idx: float(q_values[idx]))
+    hold_q = float(q_values[hold_idx])
+    best_sell_q = float(q_values[best_sell_idx])
+    raw_greedy_action_idx = int(np.argmax(q_values))
+    selected_action_idx = (
+        int(best_sell_idx)
+        if best_sell_q > hold_q + active_margin
+        else int(hold_idx)
+    )
+    was_thresholded_to_hold = bool(
+        raw_greedy_action_idx != hold_idx and selected_action_idx == hold_idx
+    )
+
+    return {
+        "hold_idx": int(hold_idx),
+        "best_sell_idx": int(best_sell_idx),
+        "raw_greedy_action_idx": raw_greedy_action_idx,
+        "selected_action_idx": selected_action_idx,
+        "hold_q": hold_q,
+        "best_sell_q": best_sell_q,
+        "q_margin": float(best_sell_q - hold_q),
+        "thresholded_greedy_margin": active_margin,
+        "was_thresholded_to_hold": was_thresholded_to_hold,
+    }
+
+
+def is_before_first_discretionary_sale(env: TaxAwareEnv) -> bool:
+    remaining_fraction = getattr(env, "_remaining_fraction", None)
+    if remaining_fraction is not None:
+        return bool(np.isclose(float(remaining_fraction), 1.0, rtol=0.0, atol=1e-12))
+
+    sold_fraction = getattr(env, "_sold_fraction", None)
+    if sold_fraction is not None:
+        return bool(np.isclose(float(sold_fraction), 0.0, rtol=0.0, atol=1e-12))
+
+    sale_count = getattr(env, "_sale_count", None)
+    if sale_count is not None:
+        return int(sale_count) == 0
+
+    return False
+
+
+def thresholded_greedy_active_margin(
+    env: TaxAwareEnv,
+    margin: float,
+    first_sale_margin: float | None = None,
+) -> float:
+    if margin < 0.0:
+        raise ValueError(f"Threshold margin must be non-negative, got {margin}.")
+    if first_sale_margin is None:
+        return float(margin)
+    if first_sale_margin < 0.0:
+        raise ValueError(
+            f"First-sale threshold margin must be non-negative, got {first_sale_margin}."
+        )
+    if is_before_first_discretionary_sale(env):
+        return float(first_sale_margin)
+    return float(margin)
+
+
+def select_thresholded_greedy_action(
+    q_net: QNetwork,
+    obs: np.ndarray,
+    num_actions: int,
+    rng: np.random.Generator,
+    device: torch.device,
+    env: TaxAwareEnv,
+    margin: float,
+    first_sale_margin: float | None = None,
+) -> int:
+    _ = rng
+    q_values = _compute_q_values(q_net, obs, num_actions, device)
+    details = _thresholded_greedy_details(
+        q_values,
+        num_actions,
+        env,
+        margin,
+        first_sale_margin=first_sale_margin,
+    )
+    return int(details["selected_action_idx"])
+
+
+def select_training_action(
+    q_net: QNetwork,
+    obs: np.ndarray,
+    epsilon: float,
+    num_actions: int,
+    rng: np.random.Generator,
+    device: torch.device,
+    env: TaxAwareEnv,
+    exploitation_policy: str,
+    thresholded_greedy_margin: float | None,
+    thresholded_greedy_first_sale_margin: float | None = None,
+    exploration_action_probabilities: np.ndarray | None = None,
+) -> TrainingActionSelection:
+    active_thresholded_greedy_margin = (
+        thresholded_greedy_active_margin(
+            env=env,
+            margin=thresholded_greedy_margin,
+            first_sale_margin=thresholded_greedy_first_sale_margin,
+        )
+        if thresholded_greedy_margin is not None
+        else None
+    )
+
+    if rng.random() < epsilon:
+        if exploration_action_probabilities is not None:
+            action_idx = int(rng.choice(num_actions, p=exploration_action_probabilities))
+        else:
+            action_idx = int(rng.integers(0, num_actions))
+        action_fraction = float(env.action_fractions[action_idx])
+        return TrainingActionSelection(
+            action_idx=action_idx,
+            raw_greedy_action_idx=None,
+            raw_greedy_action_fraction=None,
+            selected_action_idx=action_idx,
+            selected_action_fraction=action_fraction,
+            hold_q=None,
+            best_sell_q=None,
+            q_margin=None,
+            thresholded_greedy_margin=active_thresholded_greedy_margin,
+            was_thresholded_to_hold=False,
+        )
+
+    q_values = _compute_q_values(q_net, obs, num_actions, device)
+    raw_greedy_action_idx = int(np.argmax(q_values))
+    raw_greedy_action_fraction = float(env.action_fractions[raw_greedy_action_idx])
+
+    if exploitation_policy == "thresholded_greedy":
+        if thresholded_greedy_margin is None:
+            raise ValueError(
+                "training.thresholded_greedy.margin is required when "
+                "training.exploitation_policy='thresholded_greedy'."
+            )
+        details = _thresholded_greedy_details(
+            q_values,
+            num_actions,
+            env,
+            thresholded_greedy_margin,
+            first_sale_margin=thresholded_greedy_first_sale_margin,
+        )
+        selected_action_idx = int(details["selected_action_idx"])
+        return TrainingActionSelection(
+            action_idx=selected_action_idx,
+            raw_greedy_action_idx=raw_greedy_action_idx,
+            raw_greedy_action_fraction=raw_greedy_action_fraction,
+            selected_action_idx=selected_action_idx,
+            selected_action_fraction=float(env.action_fractions[selected_action_idx]),
+            hold_q=float(details["hold_q"]),
+            best_sell_q=float(details["best_sell_q"]),
+            q_margin=float(details["q_margin"]),
+            thresholded_greedy_margin=float(details["thresholded_greedy_margin"]),
+            was_thresholded_to_hold=bool(details["was_thresholded_to_hold"]),
+        )
+
+    if exploitation_policy != "greedy":
+        raise ValueError(
+            f"Unsupported training.exploitation_policy={exploitation_policy!r}; "
+            "expected 'greedy' or 'thresholded_greedy'."
+        )
+
+    return TrainingActionSelection(
+        action_idx=raw_greedy_action_idx,
+        raw_greedy_action_idx=raw_greedy_action_idx,
+        raw_greedy_action_fraction=raw_greedy_action_fraction,
+        selected_action_idx=raw_greedy_action_idx,
+        selected_action_fraction=raw_greedy_action_fraction,
+        hold_q=None,
+        best_sell_q=None,
+        q_margin=None,
+        thresholded_greedy_margin=thresholded_greedy_margin,
+        was_thresholded_to_hold=False,
+    )
+
+
 def select_epsilon_greedy_action(
     q_net: QNetwork,
     obs: np.ndarray,
@@ -574,23 +828,12 @@ def select_epsilon_greedy_action(
     device: torch.device,
     exploration_action_probabilities: np.ndarray | None = None,
 ) -> int:
-    with torch.no_grad():
-        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-        q_values = q_net(obs_tensor)
-        if q_values.shape != (1, num_actions):
-            raise AssertionError(
-                f"QNetwork output shape {tuple(q_values.shape)} does not match "
-                f"(1, {num_actions})."
-            )
-        if not torch.isfinite(q_values).all():
-            raise AssertionError("Q-values contain NaN or infinite values.")
-        if rng.random() < epsilon:
-            if exploration_action_probabilities is not None:
-                return int(
-                    rng.choice(num_actions, p=exploration_action_probabilities)
-                )
-            return int(rng.integers(0, num_actions))
-        return int(torch.argmax(q_values, dim=1).item())
+    if rng.random() < epsilon:
+        if exploration_action_probabilities is not None:
+            return int(rng.choice(num_actions, p=exploration_action_probabilities))
+        return int(rng.integers(0, num_actions))
+    q_values = _compute_q_values(q_net, obs, num_actions, device)
+    return int(np.argmax(q_values))
 
 
 def select_greedy_action(
@@ -599,17 +842,8 @@ def select_greedy_action(
     num_actions: int,
     device: torch.device,
 ) -> int:
-    with torch.no_grad():
-        obs_tensor = torch.as_tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
-        q_values = q_net(obs_tensor)
-        if q_values.shape != (1, num_actions):
-            raise AssertionError(
-                f"QNetwork output shape {tuple(q_values.shape)} does not match "
-                f"(1, {num_actions})."
-            )
-        if not torch.isfinite(q_values).all():
-            raise AssertionError("Q-values contain NaN or infinite values.")
-        return int(torch.argmax(q_values, dim=1).item())
+    q_values = _compute_q_values(q_net, obs, num_actions, device)
+    return int(np.argmax(q_values))
 
 
 def compute_epsilon(
@@ -998,6 +1232,7 @@ def _validate_config_for_environment_reward(config: dict) -> None:
             raise ValueError(
                 "Reward C-lite v2 must not penalize automatic terminal liquidation."
             )
+    resolve_training_exploitation_settings(config)
 
 
 def _get_nested(config: dict, path: str, default: Any = None) -> Any:
@@ -1007,6 +1242,79 @@ def _get_nested(config: dict, path: str, default: Any = None) -> Any:
             return default
         current = current[key]
     return current
+
+
+def resolve_training_exploitation_settings(
+    config: dict,
+) -> tuple[str, bool, float | None]:
+    exploitation_policy = str(
+        _get_nested(config, "training.exploitation_policy", "greedy")
+    )
+    if exploitation_policy not in {"greedy", "thresholded_greedy"}:
+        raise ValueError(
+            f"Unsupported training.exploitation_policy={exploitation_policy!r}; "
+            "expected 'greedy' or 'thresholded_greedy'."
+        )
+
+    thresholded_config = _get_nested(config, "training.thresholded_greedy", {}) or {}
+    if not isinstance(thresholded_config, dict):
+        raise ValueError("training.thresholded_greedy must be a mapping when provided.")
+
+    thresholded_enabled = bool(
+        thresholded_config.get("enabled", exploitation_policy == "thresholded_greedy")
+    )
+    thresholded_margin: float | None = None
+    if exploitation_policy == "thresholded_greedy":
+        if not thresholded_enabled:
+            raise ValueError(
+                "training.thresholded_greedy.enabled must be true when "
+                "training.exploitation_policy='thresholded_greedy'."
+            )
+        if "margin" not in thresholded_config:
+            raise ValueError(
+                "training.thresholded_greedy.margin is required when "
+                "training.exploitation_policy='thresholded_greedy'."
+            )
+        thresholded_margin = float(thresholded_config["margin"])
+        if thresholded_margin < 0.0:
+            raise ValueError("training.thresholded_greedy.margin must be non-negative.")
+        hold_action_fraction = float(
+            thresholded_config.get("hold_action_fraction", 0.0)
+        )
+        if not approx_equal(hold_action_fraction, 0.0):
+            raise ValueError(
+                "Only hold_action_fraction=0.0 is supported for thresholded greedy."
+            )
+        if not bool(thresholded_config.get("use_strict_greater_than", True)):
+            raise ValueError(
+                "Thresholded greedy training uses a strict '>' comparison; "
+                "set use_strict_greater_than=true."
+            )
+        resolve_thresholded_greedy_first_sale_margin(config, thresholded_margin)
+
+    return exploitation_policy, thresholded_enabled, thresholded_margin
+
+
+def resolve_thresholded_greedy_first_sale_margin(
+    config: dict,
+    thresholded_greedy_margin: float | None,
+) -> float | None:
+    if thresholded_greedy_margin is None:
+        return None
+
+    thresholded_config = _get_nested(config, "training.thresholded_greedy", {}) or {}
+    if not isinstance(thresholded_config, dict):
+        raise ValueError("training.thresholded_greedy must be a mapping when provided.")
+
+    if "first_sale_margin" not in thresholded_config:
+        return float(thresholded_greedy_margin)
+
+    first_sale_margin = float(thresholded_config["first_sale_margin"])
+    if first_sale_margin < 0.0:
+        raise ValueError(
+            "training.thresholded_greedy.first_sale_margin must be non-negative."
+        )
+    return first_sale_margin
 
 
 def _is_better_metric(
@@ -1101,6 +1409,15 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
     best_model_mode = str(_get_nested(config, "training.best_model_mode", "max"))
     if best_model_mode not in {"max", "min"}:
         raise ValueError("training.best_model_mode must be 'max' or 'min'.")
+    (
+        exploitation_policy,
+        thresholded_greedy_enabled,
+        thresholded_greedy_margin,
+    ) = resolve_training_exploitation_settings(config)
+    thresholded_greedy_first_sale_margin = resolve_thresholded_greedy_first_sale_margin(
+        config,
+        thresholded_greedy_margin,
+    )
 
     expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))
     base_reward_version = str(
@@ -1150,6 +1467,10 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
         f"output_dir={_relative_project_path(output_dir)}\n"
         f"gamma={gamma}\n"
         f"num_epochs={num_epochs}\n"
+        f"exploitation_policy={exploitation_policy}\n"
+        f"thresholded_greedy_enabled={thresholded_greedy_enabled}\n"
+        f"thresholded_greedy_margin={thresholded_greedy_margin}\n"
+        f"thresholded_greedy_first_sale_margin={thresholded_greedy_first_sale_margin}\n"
         f"exploration_policy={exploration_random_action_policy}\n"
         f"epsilon_decay_steps={epsilon_decay_steps}"
     )
@@ -1232,6 +1553,8 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
     optimization_steps = 0
     final_epsilon = epsilon_start
     last_loss: float | None = None
+    thresholded_to_hold_count = 0
+    thresholded_exploitation_step_count = 0
 
     config_used_path = output_dir / "config_used.yaml"
     save_yaml(config, config_used_path)
@@ -1279,15 +1602,29 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                     epsilon_decay_steps,
                 )
                 final_epsilon = epsilon
-                action_idx = select_epsilon_greedy_action(
-                    q_net,
-                    obs,
-                    epsilon,
-                    num_actions,
-                    rng,
-                    device,
-                    exploration_action_probabilities,
+                action_selection = select_training_action(
+                    q_net=q_net,
+                    obs=obs,
+                    epsilon=epsilon,
+                    num_actions=num_actions,
+                    rng=rng,
+                    device=device,
+                    env=env,
+                    exploitation_policy=exploitation_policy,
+                    thresholded_greedy_margin=thresholded_greedy_margin,
+                    thresholded_greedy_first_sale_margin=(
+                        thresholded_greedy_first_sale_margin
+                    ),
+                    exploration_action_probabilities=exploration_action_probabilities,
                 )
+                action_idx = action_selection.action_idx
+                if (
+                    exploitation_policy == "thresholded_greedy"
+                    and action_selection.raw_greedy_action_idx is not None
+                ):
+                    thresholded_exploitation_step_count += 1
+                if action_selection.was_thresholded_to_hold:
+                    thresholded_to_hold_count += 1
                 next_obs, reward, done, truncated, info = env.step(action_idx)
                 if truncated is not False:
                     raise AssertionError(
@@ -1344,6 +1681,13 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                             "episode_id": episode_id,
                             "step_in_episode": step_in_episode,
                             "epsilon": epsilon,
+                            "exploitation_policy": exploitation_policy,
+                            "thresholded_greedy_margin": (
+                                action_selection.thresholded_greedy_margin
+                            ),
+                            "was_thresholded_to_hold": (
+                                action_selection.was_thresholded_to_hold
+                            ),
                             "loss": loss,
                             "replay_buffer_size": len(replay_buffer),
                             "mean_q_value": mean_q,
@@ -1379,6 +1723,25 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                         ),
                         "action_fraction_executed": info.get(
                             "action_fraction_executed"
+                        ),
+                        "raw_greedy_action_idx": (
+                            action_selection.raw_greedy_action_idx
+                        ),
+                        "raw_greedy_action_fraction": (
+                            action_selection.raw_greedy_action_fraction
+                        ),
+                        "selected_action_idx": action_selection.selected_action_idx,
+                        "selected_action_fraction": (
+                            action_selection.selected_action_fraction
+                        ),
+                        "hold_q": action_selection.hold_q,
+                        "best_sell_q": action_selection.best_sell_q,
+                        "q_margin": action_selection.q_margin,
+                        "thresholded_greedy_margin": (
+                            action_selection.thresholded_greedy_margin
+                        ),
+                        "was_thresholded_to_hold": (
+                            action_selection.was_thresholded_to_hold
                         ),
                         "reward": reward,
                         "reward_A": info.get("reward_A"),
@@ -1666,6 +2029,10 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
         "reward_version": expected_reward_version,
         "base_reward_version": base_reward_version,
         "discount_factor_gamma": gamma,
+        "exploitation_policy": exploitation_policy,
+        "thresholded_greedy_enabled": thresholded_greedy_enabled,
+        "thresholded_greedy_margin": thresholded_greedy_margin,
+        "thresholded_greedy_first_sale_margin": thresholded_greedy_first_sale_margin,
         "transaction_penalty_enabled": transaction_penalty_enabled,
         "lambda_transaction": lambda_transaction,
         "cooldown_penalty_enabled": cooldown_penalty_enabled,
@@ -1683,6 +2050,8 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
         "num_actions": num_actions,
         "total_environment_steps": global_step,
         "num_optimization_steps": optimization_steps,
+        "thresholded_exploitation_step_count": thresholded_exploitation_step_count,
+        "thresholded_to_hold_count": thresholded_to_hold_count,
         "final_epsilon": final_epsilon,
         "mean_loss": float(np.mean(losses)) if losses else None,
         "last_loss": float(last_loss) if last_loss is not None else None,

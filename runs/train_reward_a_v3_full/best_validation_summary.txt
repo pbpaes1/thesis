@@ -1,4 +1,4 @@
-DQN Reward A Best Validation Model Summary
+DQN Best Validation Model Summary
 best_model_metric: mean_final_after_tax_total_value
 best_model_mode: max
 best_metric_value: 0.5830773451153731

@@ -6,4 +6,4 @@ best_epoch_idx: 2
 best_epoch_number: 3
 best_global_train_episode_idx: 21249
 best_global_step: 140880
-model_path: runs/train_reward_c_lite_v1_full/best_validation_model.pt
+model_path: runs/train_reward_c_lite_v5_full/best_validation_model.pt

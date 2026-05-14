@@ -1,7 +1,17 @@
-DQN Reward A Full Training Summary
+DQN Full Training Summary
 config_path: configs/train_reward_a_v3.yaml
 run_name: train_reward_a_v3_full
 reward_version: A_after_tax_total_value_change
+base_reward_version: A_after_tax_total_value_change
+discount_factor_gamma: 0.99
+exploitation_policy: greedy
+thresholded_greedy_enabled: False
+thresholded_greedy_margin: None
+transaction_penalty_enabled: False
+lambda_transaction: None
+cooldown_penalty_enabled: False
+lambda_cooldown: None
+cooldown_days: None
 tax_profile_name: mass_affluent_individual
 resolved_tax_profile: {'profile_name': 'mass_affluent_individual', 'short_term_rate': 0.1919, 'long_term_rate': 0.1018, 'niit_rate': 0.0, 'apply_niit': False}
 num_total_episodes: 10119
@@ -14,6 +24,8 @@ obs_dim: 36
 num_actions: 5
 total_environment_steps: 149879
 num_optimization_steps: 149816
+thresholded_exploitation_step_count: 0
+thresholded_to_hold_count: 0
 final_epsilon: 0.050000000000000044
 mean_loss: 0.009635002194378876
 last_loss: 0.0013697224203497171

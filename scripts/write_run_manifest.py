@@ -45,6 +45,15 @@ def _require(config: dict, path: str) -> Any:
     return current
 
 
+def _get_nested(config: dict, path: str, default: Any = None) -> Any:
+    current: Any = config
+    for key in path.split("."):
+        if not isinstance(current, dict) or key not in current:
+            return default
+        current = current[key]
+    return current
+
+
 def resolve_project_path(path_value: str | Path) -> Path:
     path = Path(path_value)
     if path.is_absolute():
@@ -142,6 +151,16 @@ def build_manifest(config: dict, config_path: Path) -> dict[str, Any]:
 
     final_model_path = output_dir / "final_model.pt"
     best_validation_model_path = output_dir / "best_validation_model.pt"
+    exploitation_policy = str(
+        _get_nested(config, "training.exploitation_policy", "greedy")
+    )
+    thresholded_margin = _get_nested(config, "training.thresholded_greedy.margin")
+    if thresholded_margin is not None:
+        thresholded_margin = float(thresholded_margin)
+    exploration_action_probabilities = _get_nested(
+        config,
+        "exploration.action_probabilities",
+    )
 
     return {
         "run_name": _require(config, "run.name"),
@@ -157,6 +176,12 @@ def build_manifest(config: dict, config_path: Path) -> dict[str, Any]:
         "state_schema_hash": hash_file(state_schema_path),
         "tax_profile_name": resolved_tax_profile["profile_name"],
         "tax_profile_values": resolved_tax_profile,
+        "discount_factor_gamma": float(
+            _require(config, "training.discount_factor_gamma")
+        ),
+        "exploitation_policy": exploitation_policy,
+        "thresholded_greedy_margin": thresholded_margin,
+        "exploration_action_probabilities": exploration_action_probabilities,
         "python_version": platform.python_version(),
         "package_versions": package_versions(),
         "git_commit_hash": git_commit_hash,

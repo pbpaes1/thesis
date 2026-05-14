@@ -6,7 +6,7 @@ Deep learning approach to optimizing stock position exit timing under US short-t
 
 ## Current build/train status
 
-The current build-and-train branch contains the Reward A and Reward C-lite
+The build-and-training phase now contains Reward A and Reward C-lite
 experiments used to test tax-aware liquidation behavior:
 
 - Reward A: `A_after_tax_total_value_change`
@@ -14,17 +14,43 @@ experiments used to test tax-aware liquidation behavior:
   `C_lite_after_tax_value_change_minus_cooldown_penalty`
 - Reward C-lite v2:
   `C_lite_v2_after_tax_value_change_minus_transaction_and_cooldown_penalty`
+- Reward C-lite v3:
+  C-lite v1 reward with thresholded-greedy exploitation during training
+- Reward C-lite v4:
+  C-lite v1 reward with a larger first-sale threshold during thresholded-greedy training
+- Reward C-lite v5:
+  C-lite v1 greedy training with first-sale threshold variants applied only during evaluation
 
 Reward C-lite v1 keeps Reward A as the economic reward and subtracts a
 cooldown penalty for clustered discretionary sales. Reward C-lite v2 additionally
 subtracts a small transaction penalty from every discretionary executed sale,
 uses `gamma = 1.0`, and uses more hold-biased exploration.
+Reward C-lite v3 and v4 keep the v1 reward unchanged and modify only the
+training behavior policy. Reward C-lite v5 keeps greedy C-lite v1 training and
+extends post-training evaluation with first-sale-margin policies.
 
 These experiments do not implement Reward B, drawdown penalties, or explicit
-tax-saving bonuses. Baseline and behavior inspection scripts are config-driven
-and currently exclude tax-transition baselines because the generated episodes
-already terminate at the one-year tax threshold, making `sell_at_tax_transition`
-equivalent to `hold_to_terminal`.
+tax-saving bonuses. Baseline and behavior inspection scripts are config-driven,
+include terminal liquidation tax in effective tax-rate metrics, and exclude
+tax-transition baselines because generated episodes already terminate at the
+one-year tax threshold, making `sell_at_tax_transition` equivalent to
+`hold_to_terminal`.
+
+Latest tracked build/train run artifacts:
+
+| Run | Config | Training policy | Best validation mean final after-tax value | Notes |
+|-----|--------|-----------------|--------------------------------------------|-------|
+| Reward A v3 | `configs/train_reward_a_v3.yaml` | greedy | `0.5830773451153731` | Reward A reference run |
+| Reward C-lite v1 | `configs/train_reward_c_lite_v1.yaml` | greedy | `0.5847384187819512` | Cooldown penalty only |
+| Reward C-lite v3 | `configs/train_reward_c_lite_v3.yaml` | thresholded greedy, margin `0.020` | `0.5813745591588575` | Training-time no-sell buffer |
+| Reward C-lite v4 | `configs/train_reward_c_lite_v4.yaml` | thresholded greedy, first-sale margin `0.040`, normal margin `0.020` | `0.5821660750908308` | Stronger first-sale hold bias |
+| Reward C-lite v5 | `configs/train_reward_c_lite_v5.yaml` | greedy | `0.5847384187819512` | First-sale-margin variants evaluated after training |
+
+The baseline summaries for the latest C-lite runs still rank
+`hold_to_terminal` highest by mean final after-tax total value on validation and
+test. First-sale-margin evaluation policies delay DQN first sales and reduce
+short-term selling, but they remain benchmark diagnostics rather than final
+thesis conclusions.
 
 ---
 
@@ -112,11 +138,15 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── train_reward_a_v2.yaml  # Reward A full-run config iteration
 │   ├── train_reward_a_v3.yaml  # Reward A v3 full-run config
 │   ├── train_reward_c_lite_v1.yaml  # Reward A minus cooldown penalty
-│   └── train_reward_c_lite_v2.yaml  # Reward A minus transaction and cooldown penalties
+│   ├── train_reward_c_lite_v2.yaml  # Reward A minus transaction and cooldown penalties
+│   ├── train_reward_c_lite_v3.yaml  # C-lite v1 reward with thresholded-greedy training
+│   ├── train_reward_c_lite_v4.yaml  # C-lite v1 reward with first-sale thresholded training
+│   └── train_reward_c_lite_v5.yaml  # C-lite v1 training with first-sale-margin evaluation variants
 ├── docs/
 │   ├── reward_freeze_v1.md # Reward A freeze document
 │   ├── reward_c_lite_design.md # Reward C-lite v1 design note
 │   ├── reward_c_lite_v2_design.md # Reward C-lite v2 design note
+│   ├── reward_c_lite_v3_thresholded_training_design.md # Thresholded training design note
 │   ├── model_freeze_reward_c_lite_v1.md # Pending C-lite v1 freeze template
 │   └── training_plan_v1.md # Build/train plan for Reward A
 ├── notebooks/
@@ -137,7 +167,10 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 │   ├── train_reward_a_v2_full/  # Reward A v2 full-run outputs
 │   ├── train_reward_a_v3_full/  # Reward A v3 full-run outputs
 │   ├── train_reward_c_lite_v1_full/  # Reward C-lite v1 outputs
-│   └── train_reward_c_lite_v2_full/  # Reward C-lite v2 outputs
+│   ├── train_reward_c_lite_v2_full/  # Reward C-lite v2 outputs
+│   ├── train_reward_c_lite_v3_full/  # C-lite v3 thresholded-training outputs
+│   ├── train_reward_c_lite_v4_full/  # C-lite v4 first-sale-thresholded outputs
+│   └── train_reward_c_lite_v5_full/  # C-lite v5 first-sale evaluation outputs
 ├── src/
 │   └── fetch_data.py       # Data download pipeline
 │   └── check_universe_gaps.py  # Quality checks + date filtering
@@ -151,7 +184,9 @@ Output: `data/raw/universe.parquet` — long format, one row per stock × tradin
 ├── tests/
 │   ├── test_env_smoke.py   # Smoke/unit checks for traversal, actions, tax accounting
 │   ├── test_reward_c_lite.py  # Reward C-lite v1 checks
-│   └── test_reward_c_lite_v2.py  # Reward C-lite v2 checks
+│   ├── test_reward_c_lite_v2.py  # Reward C-lite v2 checks
+│   ├── test_reward_c_lite_v3_thresholded_training.py  # Thresholded training checks
+│   └── test_baseline_terminal_tax_metrics.py  # Terminal liquidation tax metric checks
 ├── requirements.txt
 └── README.md
 ```
@@ -321,6 +356,9 @@ Full runs use the config passed by `--config`:
 python scripts/train_dqn_reward_a_full.py --config configs/train_reward_a_v3.yaml
 python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v1.yaml
 python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v2.yaml
+python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v3.yaml
+python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v4.yaml
+python scripts/train_dqn_reward_a_full.py --config configs/train_reward_c_lite_v5.yaml
 ```
 
 Main local outputs for each run:
@@ -337,10 +375,18 @@ Main local outputs for each run:
 Best-model selection remains based on validation
 `mean_final_after_tax_total_value`, not the penalized training reward.
 
+Training exploitation policy is config-driven:
+
+- default `greedy`: use the raw DQN argmax action during exploitation steps.
+- `thresholded_greedy`: sell only when the best non-hold Q-value exceeds the
+  hold Q-value by the configured margin.
+- optional `training.thresholded_greedy.first_sale_margin`: use a larger margin
+  before the first discretionary sale, then revert to the normal margin.
+
 ### 12) Evaluate baselines
 
 ```powershell
-python scripts/evaluate_reward_a_baselines.py --config configs/train_reward_c_lite_v2.yaml
+python scripts/evaluate_reward_a_baselines.py --config configs/train_reward_c_lite_v5.yaml
 ```
 
 This reads the selected training config, loads `best_validation_model.pt` when
@@ -362,6 +408,15 @@ Policies evaluated:
 Tax-transition baseline policies are intentionally excluded because episodes
 already end at the one-year tax threshold.
 
+Configs may also enable first-sale-margin DQN variants under
+`evaluation.first_sale_margin_policies`. These policies apply a larger
+threshold only before the first discretionary sale, then use the normal
+thresholded-greedy margin for later sell decisions.
+
+Episode-level tax metrics include both discretionary sales and automatic
+terminal liquidation. This matters for `hold_to_terminal`, where realized tax is
+created only by terminal liquidation.
+
 Main local outputs under the run directory:
 - `baselines/baseline_config_used.yaml`
 - `baselines/baseline_episode_metrics.csv`
@@ -372,7 +427,7 @@ Main local outputs under the run directory:
 ### 13) Inspect learned policy behavior
 
 ```powershell
-python scripts/inspect_reward_a_policy_behavior.py --config configs/train_reward_c_lite_v2.yaml
+python scripts/inspect_reward_a_policy_behavior.py --config configs/train_reward_c_lite_v5.yaml
 ```
 
 This is a build-and-train behavior inspection only. It reads the existing
@@ -392,11 +447,11 @@ Main local outputs under the run directory:
 ### 14) Write a reproducibility manifest
 
 ```powershell
-python scripts/write_run_manifest.py --config configs/train_reward_c_lite_v2.yaml
+python scripts/write_run_manifest.py --config configs/train_reward_c_lite_v5.yaml
 ```
 
 Main local output:
-- `runs/train_reward_c_lite_v2_full/run_manifest.json`
+- `runs/train_reward_c_lite_v5_full/run_manifest.json`
 
 ---
 
@@ -435,6 +490,8 @@ Reward status:
   discretionary executed sale and the cooldown penalty for clustered sales.
 - Reward C-lite v2 uses `training.discount_factor_gamma: 1.0` and exploration
   probabilities `[0.65, 0.20, 0.10, 0.04, 0.01]`.
+- Reward C-lite v3, v4, and v5 use the C-lite v1 environment reward and vary
+  the training or evaluation policy configuration rather than `reward.version`.
 - Reward A, Reward C-lite v1, and Reward C-lite v2 are selected through
   `reward.version` in the training config.
 

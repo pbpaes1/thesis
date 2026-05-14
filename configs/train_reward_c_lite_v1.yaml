@@ -121,7 +121,7 @@ training:
   epsilon_schedule:
     start: 1.0
     end: 0.05
-    decay_steps: 25000
+    decay_steps: 145000
   gradient_clip_norm: 10.0
   checkpoint_frequency_episodes: 500
   save_best_validation_model: true

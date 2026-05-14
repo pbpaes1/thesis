@@ -1,12 +1,13 @@
 DQN Full Training Summary
-config_path: configs/train_reward_c_lite_v1.yaml
-run_name: train_reward_c_lite_v1_full
+config_path: configs/train_reward_c_lite_v5.yaml
+run_name: train_reward_c_lite_v5_full
 reward_version: C_lite_after_tax_value_change_minus_cooldown_penalty
 base_reward_version: A_after_tax_total_value_change
 discount_factor_gamma: 0.99
 exploitation_policy: greedy
 thresholded_greedy_enabled: False
 thresholded_greedy_margin: None
+thresholded_greedy_first_sale_margin: None
 transaction_penalty_enabled: False
 lambda_transaction: None
 cooldown_penalty_enabled: True
@@ -47,12 +48,12 @@ best_model_mode: max
 best_validation_metric_value: 0.5847384187819512
 best_validation_epoch_number: 3
 best_validation_global_train_episode_idx: 21249
-final_model_path: runs/train_reward_c_lite_v1_full/final_model.pt
-best_validation_model_path: runs/train_reward_c_lite_v1_full/best_validation_model.pt
-train_metrics_path: runs/train_reward_c_lite_v1_full/train_metrics.csv
-eval_metrics_path: runs/train_reward_c_lite_v1_full/eval_metrics.csv
-train_episode_rollouts_path: runs/train_reward_c_lite_v1_full/train_episode_rollouts.csv
-validation_episode_rollouts_path: runs/train_reward_c_lite_v1_full/validation_episode_rollouts.csv
-episode_splits_path: runs/train_reward_c_lite_v1_full/episode_splits.csv
+final_model_path: runs/train_reward_c_lite_v5_full/final_model.pt
+best_validation_model_path: runs/train_reward_c_lite_v5_full/best_validation_model.pt
+train_metrics_path: runs/train_reward_c_lite_v5_full/train_metrics.csv
+eval_metrics_path: runs/train_reward_c_lite_v5_full/eval_metrics.csv
+train_episode_rollouts_path: runs/train_reward_c_lite_v5_full/train_episode_rollouts.csv
+validation_episode_rollouts_path: runs/train_reward_c_lite_v5_full/validation_episode_rollouts.csv
+episode_splits_path: runs/train_reward_c_lite_v5_full/episode_splits.csv
 exploration_random_action_policy: hold_biased
 exploration_action_probabilities: [0.5, 0.2, 0.15, 0.1, 0.05]
