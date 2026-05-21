@@ -1,0 +1,31 @@
+Quantitative Analysis Phase 1-3 Summary
+final_run_used: runs/train_reward_c_lite_v5_full
+config_used: configs/train_reward_c_lite_v5.yaml
+num_policies_in_final_policy_universe: 11
+best_validation_policy_by_mean_final_after_tax_total_value: hold_to_terminal
+best_test_policy_by_mean_final_after_tax_total_value: hold_to_terminal
+preferred_interpretation_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
+hold_to_terminal_remains_strongest: validation=True, test=True
+preferred_dqn_beats_sell_immediately_on_test: True
+preferred_dqn_beats_sell_half_then_hold_on_test: True
+step3b_risk_adjusted_path_metrics_completed: True
+step3b_rows_written: 22
+step3b_annual_risk_free_rate: 0.04
+step3b_daily_risk_free_rate: 0.0001556498627912628
+step3b_cash_reinvestment_assumption: liquidated_after_tax_proceeds_earn_daily_risk_free_rate
+step3b_outputs: step3b_policy_risk_adjusted_path_metrics.csv; step3b_policy_risk_adjusted_path_metrics.md; step3b_risk_adjusted_path_metrics_notes.txt
+step3_compact_includes_step3b_median_path_sharpe: True
+step3c_conditional_hold_weak_analysis_completed: True
+step3c_rows_written: 110
+step3c_outputs: step3c_conditional_hold_weak_analysis.csv; step3c_conditional_hold_weak_analysis.md; step3c_conditional_hold_weak_analysis_summary.txt
+step3d_tax_free_counterfactual_completed: True
+step3d_tax_free_rows_written: 22
+step3d_comparison_rows_written: 22
+step3d_tax_free_risk_adjusted_path_metrics_completed: True
+step3d_tax_free_risk_adjusted_rows_written: 22
+step3d_tax_free_conditional_hold_weak_analysis_completed: True
+step3d_tax_free_conditional_rows_written: 110
+tax_free_counterfactual_output_dir: runs/train_reward_c_lite_v5_full/quant_analysis/tax_free_counterfactual
+step3d_episode_metrics_only: True
+step3d_warning: tax-free evaluation uses the frozen taxed-trained DQN and is not retrained.
+scope_note: This package implements quantitative analysis steps 1, 2, 3, Step 3B secondary path diagnostics, Step 3C subgroup diagnostics, and Step 3D tax-free counterfactual evaluation; steps 4 onward are not implemented here.

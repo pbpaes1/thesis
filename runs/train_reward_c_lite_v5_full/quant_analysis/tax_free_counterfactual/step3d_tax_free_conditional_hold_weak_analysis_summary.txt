@@ -1,0 +1,9 @@
+Step 3D tax-free conditional hold-weak analysis
+This is the Step 3C downside/hold-weak subgroup analysis repeated under the tax-free counterfactual.
+Buckets are based only on tax-free hold_to_terminal terminal outcomes, not DQN outcomes.
+The <=30% group tests active policy behavior when passive holding fails to preserve the initial +30% rally in the tax-free environment.
+This is a subgroup diagnostic, not the primary thesis result.
+preferred_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
+test_preferred_dqn_le_30pct_num_episodes: 362
+test_preferred_dqn_le_30pct_mean_difference_vs_hold_to_terminal: 0.058670272411709856
+test_preferred_dqn_le_30pct_win_rate_vs_hold_to_terminal: 0.4088397790055249

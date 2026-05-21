@@ -1,0 +1,13 @@
+Step 3D tax-free counterfactual notes
+This is a counterfactual evaluation using a zero-tax profile.
+The DQN is not retrained.
+The DQN remains the frozen model trained under the original taxed C-lite v5 setup.
+Tax-free results test whether policy rankings and behavior depend on tax burden.
+Since the model was trained under taxed rewards, this does not answer what a newly trained tax-free DQN would learn.
+It only answers how the existing frozen policy behaves when evaluated under a no-tax environment.
+DQN label: frozen taxed-trained DQN evaluated under tax-free environment.
+frozen_run_used: runs/train_reward_c_lite_v5_full
+model_used: runs/train_reward_c_lite_v5_full/best_validation_model.pt
+step_rollout_scope: No tax-free step rollouts are saved because --step3d-episode-metrics-only was used.
+All Step 3D files are written under quant_analysis/tax_free_counterfactual; the original taxed baselines directory is not written by Step 3D.
+Original taxed results remain the primary thesis results.

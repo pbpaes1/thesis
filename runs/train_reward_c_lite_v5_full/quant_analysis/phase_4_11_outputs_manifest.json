@@ -1,0 +1,374 @@
+[
+  {
+    "description": "DQN decision rule comparison for validation and test splits.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4_dqn_decision_rule_comparison.csv",
+    "step": "4",
+    "type": "csv"
+  },
+  {
+    "description": "DQN decision rule comparison for validation and test splits.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4_dqn_decision_rule_comparison.md",
+    "step": "4",
+    "type": "md"
+  },
+  {
+    "description": "DQN decision rule mean final after-tax value for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_dqn_decision_rule_value_validation.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "DQN decision rule mean final after-tax value for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_dqn_decision_rule_value_test.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "First-sale margin sensitivity table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step5_first_sale_margin_sensitivity.csv",
+    "step": "5",
+    "type": "csv"
+  },
+  {
+    "description": "First-sale margin sensitivity table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step5_first_sale_margin_sensitivity.md",
+    "step": "5",
+    "type": "md"
+  },
+  {
+    "description": "First-sale margin versus after-tax value for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_after_tax_value_validation.png",
+    "step": "5",
+    "type": "png"
+  },
+  {
+    "description": "First-sale margin versus after-tax value for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_after_tax_value_test.png",
+    "step": "5",
+    "type": "png"
+  },
+  {
+    "description": "First-sale margin versus short-term sold fraction for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_short_term_fraction_test.png",
+    "step": "5",
+    "type": "png"
+  },
+  {
+    "description": "First-sale margin versus no-cut percentage for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_no_cut_pct_test.png",
+    "step": "5",
+    "type": "png"
+  },
+  {
+    "description": "Compact interpretation notes for first-sale margin sensitivity.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step5_interpretation_notes.txt",
+    "step": "5",
+    "type": "txt"
+  },
+  {
+    "description": "Tax-efficiency analysis for final policy universe.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step6_tax_efficiency_analysis.csv",
+    "step": "6",
+    "type": "csv"
+  },
+  {
+    "description": "Tax-efficiency analysis for final policy universe.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step6_tax_efficiency_analysis.md",
+    "step": "6",
+    "type": "md"
+  },
+  {
+    "description": "Tax-efficiency denominator and interpretation notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step6_tax_efficiency_notes.txt",
+    "step": "6",
+    "type": "txt"
+  },
+  {
+    "description": "Stacked short/long-term sold fraction for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step6_short_vs_long_term_sold_fraction_test.png",
+    "step": "6",
+    "type": "png"
+  },
+  {
+    "description": "Stacked short/long-term sold fraction for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step6_short_vs_long_term_sold_fraction_validation.png",
+    "step": "6",
+    "type": "png"
+  },
+  {
+    "description": "Mean tax paid by policy for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step6_mean_tax_paid_by_policy_test.png",
+    "step": "6",
+    "type": "png"
+  },
+  {
+    "description": "Cached train split preferred-policy diagnostic episode metrics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/intermediate/step7_preferred_policy_train_episode_metrics.csv",
+    "step": "7",
+    "type": "csv"
+  },
+  {
+    "description": "Cached train split preferred-policy diagnostic step rollouts.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/intermediate/step7_preferred_policy_train_step_rollouts.csv",
+    "step": "7",
+    "type": "csv"
+  },
+  {
+    "description": "Preferred policy behavior diagnostics by train, validation, test, and all episodes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step7_preferred_policy_behavior_by_split.csv",
+    "step": "7",
+    "type": "csv"
+  },
+  {
+    "description": "Preferred policy behavior diagnostics by train, validation, test, and all episodes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step7_preferred_policy_behavior_by_split.md",
+    "step": "7",
+    "type": "md"
+  },
+  {
+    "description": "Preferred policy behavior summary including descriptive diagnostic scope labels.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step7_preferred_policy_behavior_summary.csv",
+    "step": "7",
+    "type": "csv"
+  },
+  {
+    "description": "Preferred policy behavior summary including descriptive diagnostic scope labels.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step7_preferred_policy_behavior_summary.md",
+    "step": "7",
+    "type": "md"
+  },
+  {
+    "description": "Preferred policy test action distribution.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_action_distribution_test.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy test first-sale timing histogram.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_first_sale_timing_histogram_test.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy test remaining fraction over normalized time.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_remaining_fraction_over_time_test.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy test cumulative sold fraction over normalized time.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_cumulative_sold_fraction_over_time_test.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy action distribution by split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_action_distribution_by_split.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy no-cut episode pct by split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_no_cut_pct_by_split.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean short-term sold fraction by split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_short_term_sold_fraction_by_split.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy average days to first sale by split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_days_to_first_sale_by_split.png",
+    "step": "7",
+    "type": "png"
+  },
+  {
+    "description": "Risk-adjusted episode Sharpe and reward-path Sharpe analysis.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4b_risk_adjusted_sharpe_analysis.csv",
+    "step": "4B",
+    "type": "csv"
+  },
+  {
+    "description": "Risk-adjusted episode Sharpe and reward-path Sharpe analysis.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4b_risk_adjusted_sharpe_analysis.md",
+    "step": "4B",
+    "type": "md"
+  },
+  {
+    "description": "Risk-adjusted Sharpe assumptions and caveats.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4b_risk_adjusted_sharpe_notes.txt",
+    "step": "4B",
+    "type": "txt"
+  },
+  {
+    "description": "Episode Sharpe by policy for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4b_episode_sharpe_by_policy_validation.png",
+    "step": "4B",
+    "type": "png"
+  },
+  {
+    "description": "Episode Sharpe by policy for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4b_episode_sharpe_by_policy_test.png",
+    "step": "4B",
+    "type": "png"
+  },
+  {
+    "description": "Test split episode return versus volatility by policy.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4b_return_vs_volatility_test.png",
+    "step": "4B",
+    "type": "png"
+  },
+  {
+    "description": "Updated compact performance summary with Sharpe and Sortino columns.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step3_policy_performance_summary_compact.csv",
+    "step": "4B",
+    "type": "csv"
+  },
+  {
+    "description": "Updated compact performance summary with Sharpe and Sortino columns.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step3_policy_performance_summary_compact.md",
+    "step": "4B",
+    "type": "md"
+  },
+  {
+    "description": "Paired preferred-policy dominance analysis against benchmark policies.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_benchmark_dominance_analysis.csv",
+    "step": "8",
+    "type": "csv"
+  },
+  {
+    "description": "Paired preferred-policy dominance analysis against benchmark policies.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_benchmark_dominance_analysis.md",
+    "step": "8",
+    "type": "md"
+  },
+  {
+    "description": "Benchmark dominance summary text.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_benchmark_dominance_summary.txt",
+    "step": "8",
+    "type": "txt"
+  },
+  {
+    "description": "Preferred policy mean paired differences against benchmarks on test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_preferred_vs_benchmarks_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Cross-sectional paired episode analysis by available groupings.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_cross_sectional_episode_analysis.csv",
+    "step": "9",
+    "type": "csv"
+  },
+  {
+    "description": "Cross-sectional paired episode analysis by available groupings.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_cross_sectional_episode_analysis.md",
+    "step": "9",
+    "type": "md"
+  },
+  {
+    "description": "Skipped or proxied cross-sectional grouping notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_skipped_groupings_notes.txt",
+    "step": "9",
+    "type": "txt"
+  },
+  {
+    "description": "Preferred minus hold by final value bucket for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_preferred_minus_hold_by_final_value_bucket_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Paired robustness and statistical testing calculations.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step10_robustness_statistical_tests.csv",
+    "step": "10",
+    "type": "csv"
+  },
+  {
+    "description": "Paired robustness and statistical testing calculations.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step10_robustness_statistical_tests.md",
+    "step": "10",
+    "type": "md"
+  },
+  {
+    "description": "Statistical testing notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step10_statistical_testing_notes.txt",
+    "step": "10",
+    "type": "txt"
+  },
+  {
+    "description": "Test paired difference distribution versus hold_to_terminal.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step10_difference_distribution_vs_hold_test.png",
+    "step": "10",
+    "type": "png"
+  },
+  {
+    "description": "Test paired difference distribution versus sell_immediately.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step10_difference_distribution_vs_sell_immediately_test.png",
+    "step": "10",
+    "type": "png"
+  },
+  {
+    "description": "Automatically selected representative test episodes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_representative_episode_selection.csv",
+    "step": "11",
+    "type": "csv"
+  },
+  {
+    "description": "Automatically selected representative test episodes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_representative_episode_selection.md",
+    "step": "11",
+    "type": "md"
+  },
+  {
+    "description": "Representative case-study plot: dqn_sells_early_beats_hold.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_1_dqn_sells_early_beats_hold.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Representative case-study plot: dqn_sells_early_underperforms_hold.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_2_dqn_sells_early_underperforms_hold.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Representative case-study plot: dqn_waits_until_long_term.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_3_dqn_waits_until_long_term.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Representative case-study plot: dqn_hold_like.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_4_dqn_hold_like.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Representative case-study plot: partial_liquidation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_5_partial_liquidation.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Representative episode case-study notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_case_study_notes.txt",
+    "step": "11",
+    "type": "txt"
+  },
+  {
+    "description": "Final combined phase 4-11 summary.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/phase_4_11_summary.txt",
+    "step": "4-11",
+    "type": "txt"
+  },
+  {
+    "description": "Manifest of phase 4-11 created files.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/phase_4_11_outputs_manifest.json",
+    "step": "4-11",
+    "type": "json"
+  }
+]

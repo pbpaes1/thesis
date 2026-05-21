@@ -1,0 +1,6 @@
+Step 10 statistical testing notes
+Bootstrap confidence intervals are percentile intervals for paired mean differences.
+bootstrap_iterations: 2000
+random_seed: 42
+Wilcoxon signed-rank p-values are included only when scipy is installed.
+These outputs provide calculations only and do not make significance claims.

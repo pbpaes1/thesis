@@ -1,0 +1,5 @@
+Step 5 interpretation notes
+0.060 is more active but more exposed to premature selling.
+0.070 is the preferred balance.
+0.080 and 0.090 are useful sensitivity policies but increasingly close to hold-to-terminal behavior.
+0.090 should not be the main interpretation policy if no-cut episodes are too high.

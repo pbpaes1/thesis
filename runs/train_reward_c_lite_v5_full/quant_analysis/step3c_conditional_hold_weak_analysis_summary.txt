@@ -1,0 +1,13 @@
+Step 3C conditional hold-weak performance analysis
+This analysis is conditional on hold_to_terminal terminal outcome.
+The <=30% group is not selected based on DQN performance.
+It tests whether active liquidation helps when passive holding fails to preserve the initial +30% rally.
+It should be interpreted as a subgroup analysis, not as the primary result.
+The >30% group is included to avoid cherry-picking.
+preferred_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
+bucket_schemes: two_bucket, three_bucket
+test_preferred_dqn_le_30pct_num_episodes: 469
+test_preferred_dqn_le_30pct_mean_difference_vs_hold_to_terminal: 0.029295136328549597
+test_preferred_dqn_le_30pct_win_rate_vs_hold_to_terminal: 0.2899786780383795
+test_preferred_dqn_le_30pct_mean_difference_vs_sell_immediately: -0.06791615050579362
+test_preferred_dqn_le_30pct_mean_difference_vs_sell_half_then_hold: -0.01931050708862201

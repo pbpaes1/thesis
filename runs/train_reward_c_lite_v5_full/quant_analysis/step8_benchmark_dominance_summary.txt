@@ -1,0 +1,8 @@
+Step 8 benchmark dominance summary
+best_validation_policy_by_mean_final_after_tax_value: hold_to_terminal
+best_test_policy_by_mean_final_after_tax_value: hold_to_terminal
+preferred_beats_hold_to_terminal_on_test: False
+preferred_beats_sell_immediately_on_test: True
+preferred_beats_sell_half_then_hold_on_test: True
+preferred_beats_sell_quarters_over_time_on_test: True
+If hold_to_terminal is strongest, this file states it directly.

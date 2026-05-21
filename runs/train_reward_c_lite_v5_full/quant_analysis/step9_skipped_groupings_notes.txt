@@ -1,0 +1,7 @@
+Step 9 skipped grouping notes
+validation: maximum gain bucket computed from max after_tax_total_value minus first after_tax_total_value proxy.
+validation: drawdown bucket computed from first after_tax_total_value minus minimum after_tax_total_value proxy.
+validation: sector grouping skipped; no sector column exists in baseline artifacts.
+test: maximum gain bucket computed from max after_tax_total_value minus first after_tax_total_value proxy.
+test: drawdown bucket computed from first after_tax_total_value minus minimum after_tax_total_value proxy.
+test: sector grouping skipped; no sector column exists in baseline artifacts.

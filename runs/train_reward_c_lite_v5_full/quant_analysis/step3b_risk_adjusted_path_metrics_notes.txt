@@ -1,0 +1,10 @@
+Step 3B risk-adjusted path metrics notes
+A constant annual risk-free rate of 4% is assumed.
+The daily risk-free rate is computed as (1 + 0.04) ** (1 / 252) - 1.
+Annualization uses sqrt(252).
+After liquidation, realized after-tax proceeds are assumed to earn the daily risk-free rate until terminal date.
+If a rollout path ends at full liquidation before the episode terminal step, full-horizon diagnostics add daily cash intervals through the terminal step inferred from the episode rollout universe.
+Full-horizon Sharpe includes post-liquidation cash periods, but those periods earn the risk-free rate and therefore contribute approximately zero excess return.
+Invested-period Sharpe excludes post-liquidation flat periods and measures return efficiency only while the policy remains exposed.
+These are episode-level Sharpe-style diagnostics based on after-tax value paths, not classical live-portfolio Sharpe ratios from a fully investable daily portfolio return series.
+Final after-tax total value remains the primary thesis metric.

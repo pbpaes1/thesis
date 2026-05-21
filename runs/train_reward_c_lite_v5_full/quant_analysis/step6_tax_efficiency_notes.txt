@@ -1,0 +1,3 @@
+Step 6 tax-efficiency notes
+tax_paid_as_pct_of_positive_taxable_pre_tax_increment uses total_positive_taxable_pre_tax_increment from baseline_episode_metrics.csv.
+estimated_tax_drag_vs_hold_to_terminal and estimated_tax_drag_vs_sell_immediately are differences in mean_total_tax_paid, not causal estimates.
