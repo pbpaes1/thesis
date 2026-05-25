@@ -498,10 +498,21 @@ Main Step 4 outputs:
 - `quant_analysis/plots/step4_dqn_decision_rule_value_test.png`
 - `quant_analysis/plots/step4_margin_vs_after_tax_value_validation.png`
 - `quant_analysis/plots/step4_margin_vs_after_tax_value_test.png`
+- `quant_analysis/plots/step4_margin_vs_short_term_fraction_test.png`
+- `quant_analysis/plots/step4_margin_vs_no_cut_pct_test.png`
+- `quant_analysis/plots/step4_margin_vs_total_tax_paid_test.png`
 - `quant_analysis/plots/step4_eaat_median_sharpe_by_policy_validation.png`
 - `quant_analysis/plots/step4_eaat_median_sharpe_by_policy_test.png`
 - `quant_analysis/plots/step4_ta_eaat_median_sharpe_by_policy_validation.png`
 - `quant_analysis/plots/step4_ta_eaat_median_sharpe_by_policy_test.png`
+
+Step 5 remains a compact first-sale-margin sensitivity table and interpretation
+note. Its standalone margin charts were removed because the final useful margin
+visuals now live in Step 4.
+
+Main Step 5 outputs:
+- `quant_analysis/step5_first_sale_margin_sensitivity.md`
+- `quant_analysis/step5_interpretation_notes.txt`
 
 Legacy Step 4B risk-adjusted diagnostics were removed from the final workflow
 and manifest. Those files used risk-free rate `0`, no annualization, and

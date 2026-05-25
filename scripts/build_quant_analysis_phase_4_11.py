@@ -597,32 +597,6 @@ def plot_bar_by_split(
     save_plot(path, registry, step, description)
 
 
-def plot_line_margin(
-    df: pd.DataFrame,
-    split: str,
-    y_column: str,
-    path: Path,
-    registry: OutputRegistry,
-    step: str,
-    description: str,
-    *,
-    ylabel: str,
-) -> None:
-    split_df = df[df["split"].eq(split)].sort_values("first_sale_margin")
-    plt.figure(figsize=(7, 4.5))
-    plt.plot(
-        split_df["first_sale_margin"],
-        split_df[y_column],
-        marker="o",
-        color="#2f6f4e",
-    )
-    plt.xlabel("first sale margin")
-    plt.ylabel(ylabel)
-    plt.title(f"{ylabel} by first-sale margin - {split}")
-    plt.grid(alpha=0.25)
-    save_plot(path, registry, step, description)
-
-
 def step4_first_sale_margin(policy_name: str) -> float:
     if policy_name == "trained_dqn_thresholded_margin_0p020":
         return 0.020
@@ -1205,37 +1179,6 @@ def build_step5(
         registry,
         "5",
         "First-sale margin sensitivity table.",
-    )
-    for split in VALIDATION_TEST_SPLITS:
-        plot_line_margin(
-            out,
-            split,
-            "mean_final_after_tax_total_value",
-            plots_dir / f"step5_margin_vs_after_tax_value_{split}.png",
-            registry,
-            "5",
-            f"First-sale margin versus after-tax value for {split}.",
-            ylabel="mean final after-tax total value",
-        )
-    plot_line_margin(
-        out,
-        "test",
-        "mean_pct_position_sold_short_term",
-        plots_dir / "step5_margin_vs_short_term_fraction_test.png",
-        registry,
-        "5",
-        "First-sale margin versus short-term sold fraction for test split.",
-        ylabel="mean short-term sold fraction",
-    )
-    plot_line_margin(
-        out,
-        "test",
-        "no_cut_episode_pct",
-        plots_dir / "step5_margin_vs_no_cut_pct_test.png",
-        registry,
-        "5",
-        "First-sale margin versus no-cut percentage for test split.",
-        ylabel="no-cut episode pct",
     )
     notes = "\n".join(
         [

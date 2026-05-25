@@ -90,30 +90,6 @@
     "type": "md"
   },
   {
-    "description": "First-sale margin versus after-tax value for validation.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_after_tax_value_validation.png",
-    "step": "5",
-    "type": "png"
-  },
-  {
-    "description": "First-sale margin versus after-tax value for test.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_after_tax_value_test.png",
-    "step": "5",
-    "type": "png"
-  },
-  {
-    "description": "First-sale margin versus short-term sold fraction for test split.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_short_term_fraction_test.png",
-    "step": "5",
-    "type": "png"
-  },
-  {
-    "description": "First-sale margin versus no-cut percentage for test split.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step5_margin_vs_no_cut_pct_test.png",
-    "step": "5",
-    "type": "png"
-  },
-  {
     "description": "Compact interpretation notes for first-sale margin sensitivity.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step5_interpretation_notes.txt",
     "step": "5",
