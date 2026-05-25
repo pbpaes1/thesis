@@ -1,4 +1,4 @@
-Step 3B risk-adjusted path metrics notes
+Step 3B legacy risk-adjusted path diagnostics notes
 A constant annual risk-free rate of 4% is assumed.
 The daily risk-free rate is computed as (1 + 0.04) ** (1 / 252) - 1.
 Annualization uses sqrt(252).

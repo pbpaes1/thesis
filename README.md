@@ -453,6 +453,33 @@ python scripts/write_run_manifest.py --config configs/train_reward_c_lite_v5.yam
 Main local output:
 - `runs/train_reward_c_lite_v5_full/run_manifest.json`
 
+### 15) Build quantitative analysis outputs
+
+```powershell
+python scripts/build_quant_analysis_phase_1_3.py --config configs/train_reward_c_lite_v5.yaml
+python scripts/build_quant_analysis_phase_4_11.py --config configs/train_reward_c_lite_v5.yaml
+```
+
+Step 3B reports supplementary risk-adjusted diagnostics for the frozen
+C-lite v5 policy universe. The main Step 3B Sharpe outputs are after-tax:
+
+- `EAAT_Sharpe` uses terminal after-tax wealth and an exposure-adjusted daily
+  stock/cash return path. After a sale, liquidated after-tax proceeds earn the
+  daily risk-free rate.
+- `TA_EAAT_Sharpe` uses sale-level after-tax tranches. Each tranche is
+  annualized from original purchase day to sale day and paired with stock
+  volatility over the same holding window.
+- Pre-tax values are not policy-table metric columns. They appear only in audit
+  notes as tax-transformation checks and counterfactual comparisons.
+
+Main Step 3B outputs:
+- `quant_analysis/step3b_policy_eaat_sharpe_metrics.md`
+- `quant_analysis/step3b_episode_eaat_sharpe_metrics.csv`
+- `quant_analysis/step3b_episode_tranche_records.csv`
+- `quant_analysis/step3b_median_episode_eaat_verification.md`
+- `quant_analysis/step3b_one_case_eaat_verification.md`
+- `quant_analysis/step3b_eaat_sharpe_metrics_notes.txt`
+
 ---
 
 ## Tax-aware environment

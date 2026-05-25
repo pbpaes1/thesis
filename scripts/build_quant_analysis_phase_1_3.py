@@ -222,10 +222,95 @@ STEP3B_COLUMNS = [
     "median_invested_period_annualized_volatility",
 ]
 
-STEP3B_COMPACT_COLUMNS = [
+LEGACY_STEP3B_COMPACT_COLUMNS = [
     "median_full_horizon_annualized_sharpe",
     "median_invested_period_annualized_sharpe",
 ]
+
+STEP3B_EAAT_COLUMNS = [
+    "split",
+    "policy_name",
+    "num_episodes",
+    "num_valid_EAAT_Sharpe_episodes",
+    "mean_EAAT_Sharpe",
+    "median_EAAT_Sharpe",
+    "std_EAAT_Sharpe",
+    "pct_positive_EAAT_Sharpe",
+    "mean_EAAT_annualized_after_tax_return",
+    "median_EAAT_annualized_after_tax_return",
+    "mean_EAAT_annualized_volatility",
+    "median_EAAT_annualized_volatility",
+    "num_valid_TA_EAAT_Sharpe_episodes",
+    "mean_TA_EAAT_Sharpe",
+    "median_TA_EAAT_Sharpe",
+    "std_TA_EAAT_Sharpe",
+    "pct_positive_TA_EAAT_Sharpe",
+    "mean_TA_EAAT_annualized_after_tax_return",
+    "median_TA_EAAT_annualized_after_tax_return",
+    "mean_TA_EAAT_annualized_volatility",
+    "median_TA_EAAT_annualized_volatility",
+    "annual_risk_free_rate",
+    "daily_risk_free_rate",
+    "annualization_factor",
+    "risk_free_rate_source",
+    "cash_reinvestment_assumption",
+    "horizon_scope",
+]
+
+STEP3B_EPISODE_EAAT_COLUMNS = [
+    "split",
+    "policy_name",
+    "episode_id",
+    "horizon_scope",
+    "terminal_date",
+    "terminal_trading_day",
+    "num_stock_return_observations",
+    "num_sale_tranches",
+    "sale_tranche_weight_sum",
+    "valid_sale_tranche_weights",
+    "EAAT_terminal_after_tax_wealth",
+    "EAAT_annualized_after_tax_return",
+    "EAAT_annualized_volatility",
+    "EAAT_Sharpe",
+    "TA_EAAT_annualized_after_tax_return",
+    "TA_EAAT_annualized_volatility",
+    "TA_EAAT_Sharpe",
+    "annual_risk_free_rate",
+    "daily_risk_free_rate",
+    "annualization_factor",
+]
+
+STEP3B_TRANCHE_RECORD_COLUMNS = [
+    "split",
+    "policy_name",
+    "episode_id",
+    "tranche_index",
+    "tranche_type",
+    "sale_date",
+    "sale_trading_day",
+    "weight",
+    "after_tax_return",
+    "after_tax_wealth_at_sale",
+    "cash_compound_days_to_terminal",
+    "EAAT_terminal_wealth_contribution",
+    "TA_EAAT_annualized_after_tax_return",
+    "TA_EAAT_annualized_stock_volatility",
+    "TA_EAAT_valid_tranche",
+]
+
+STEP3B_COMPACT_COLUMNS = [
+    "median_EAAT_Sharpe",
+    "median_TA_EAAT_Sharpe",
+]
+
+STEP3B_VERIFICATION_CASE = {
+    "split": "validation",
+    "policy_name": "random_policy",
+    "episode_id": "JD_2022-03-14",
+}
+STEP3B_MEDIAN_VERIFICATION_SPLIT = "test"
+STEP3B_MEDIAN_VERIFICATION_POLICY = PREFERRED_POLICY
+STEP3B_MEDIAN_VERIFICATION_METRIC = "EAAT_Sharpe"
 
 LEGACY_COMPACT_SHARPE_COLUMNS = [
     "mean_episode_return",
@@ -1463,6 +1548,892 @@ def validate_required_split_policy_pairs(
         )
 
 
+RETURN_COLUMN_CANDIDATES = [
+    "stock_return",
+    "daily_stock_return",
+    "simple_return",
+    "adj_close_return",
+    "close_return",
+    "daily_return",
+    "return",
+]
+
+PRICE_COLUMN_CANDIDATES = [
+    "adj_close",
+    "close",
+]
+
+
+def first_existing_column(columns: set[str], candidates: list[str]) -> str | None:
+    for candidate in candidates:
+        if candidate in columns:
+            return candidate
+    return None
+
+
+def parquet_column_names(path: Path) -> set[str]:
+    try:
+        import pyarrow.parquet as pq
+
+        return set(pq.read_schema(path).names)
+    except Exception:
+        return set(pd.read_parquet(path).columns)
+
+
+def read_parquet_columns(
+    path: Path,
+    *,
+    required_columns: list[str],
+    optional_columns: list[str] | None = None,
+) -> pd.DataFrame:
+    available_columns = parquet_column_names(path)
+    missing_columns = [
+        column for column in required_columns if column not in available_columns
+    ]
+    if missing_columns:
+        raise ValueError(
+            f"Missing required column(s) in {path}: {missing_columns}"
+        )
+    selected_columns = list(required_columns)
+    for column in optional_columns or []:
+        if column in available_columns and column not in selected_columns:
+            selected_columns.append(column)
+    return pd.read_parquet(path, columns=selected_columns)
+
+
+def resolve_step3b_stock_source_path() -> Path | None:
+    candidates = [
+        PROJECT_ROOT / "data" / "features" / "engineered_universe.parquet",
+        PROJECT_ROOT / "data" / "aligned_common_dates" / "universe_aligned.parquet",
+        PROJECT_ROOT / "data" / "quality" / "universe_filtered_2009h2_2026.parquet",
+        PROJECT_ROOT / "data" / "raw" / "universe.parquet",
+    ]
+    for candidate in candidates:
+        if not candidate.exists():
+            continue
+        columns = parquet_column_names(candidate)
+        has_identifier_columns = {"date", "ticker"}.issubset(columns)
+        has_return_or_price = (
+            first_existing_column(columns, RETURN_COLUMN_CANDIDATES) is not None
+            or first_existing_column(columns, PRICE_COLUMN_CANDIDATES) is not None
+        )
+        if has_identifier_columns and has_return_or_price:
+            return candidate
+    return None
+
+
+def prepare_stock_paths_for_eaat(
+    stock_paths_df: pd.DataFrame,
+    *,
+    source_path: Path,
+) -> pd.DataFrame:
+    require_columns(stock_paths_df, ["episode_id", "date"], source=source_path)
+    paths = stock_paths_df.copy()
+    paths["episode_id"] = paths["episode_id"].astype(str)
+    paths["date"] = pd.to_datetime(paths["date"], errors="coerce")
+    if paths["date"].isna().any():
+        raise ValueError(
+            "Cannot build Step 3B EAAT metrics because stock path dates contain "
+            f"missing or invalid values in {source_path}."
+        )
+    paths = paths.sort_values(["episode_id", "date"], kind="mergesort")
+
+    if "stock_day" in paths.columns:
+        paths["stock_day"] = pd.to_numeric(paths["stock_day"], errors="coerce")
+        if paths["stock_day"].isna().any():
+            raise ValueError(
+                "Cannot build Step 3B EAAT metrics because stock_day contains "
+                f"missing or non-numeric values in {source_path}."
+            )
+        paths["stock_day"] = paths["stock_day"].astype(int)
+    else:
+        paths["stock_day"] = paths.groupby("episode_id", sort=False).cumcount()
+
+    columns = set(paths.columns)
+    return_column = first_existing_column(columns, RETURN_COLUMN_CANDIDATES)
+    price_column = first_existing_column(columns, PRICE_COLUMN_CANDIDATES)
+    if return_column is not None:
+        paths["stock_return"] = pd.to_numeric(paths[return_column], errors="coerce")
+        if price_column is not None:
+            paths[price_column] = pd.to_numeric(paths[price_column], errors="coerce")
+            price_returns = paths.groupby("episode_id", sort=False)[
+                price_column
+            ].pct_change()
+            paths["stock_return"] = paths["stock_return"].where(
+                paths["stock_return"].notna(),
+                price_returns,
+            )
+    elif price_column is not None:
+        paths[price_column] = pd.to_numeric(paths[price_column], errors="coerce")
+        if paths[price_column].isna().any():
+            raise ValueError(
+                "Cannot compute Step 3B EAAT stock returns because price column "
+                f"{price_column!r} contains missing or non-numeric values in "
+                f"{source_path}."
+            )
+        paths["stock_return"] = paths.groupby("episode_id", sort=False)[
+            price_column
+        ].pct_change()
+    else:
+        raise ValueError(
+            "Step 3B EAAT metrics require a clean daily stock return column "
+            f"({RETURN_COLUMN_CANDIDATES}) or a price column "
+            f"({PRICE_COLUMN_CANDIDATES}) in {source_path}."
+        )
+
+    paths.loc[paths["stock_day"].eq(0), "stock_return"] = np.nan
+    invalid_return_rows = paths["stock_day"].gt(0) & (
+        paths["stock_return"].isna() | ~np.isfinite(paths["stock_return"])
+    )
+    if invalid_return_rows.any():
+        example_ids = (
+            paths.loc[invalid_return_rows, "episode_id"]
+            .drop_duplicates()
+            .head(5)
+            .tolist()
+        )
+        raise ValueError(
+            "Cannot build Step 3B EAAT metrics because daily stock returns are "
+            "missing or non-finite after day 0. Provide a clean return column or "
+            "valid adj_close/close prices. Example episode_id values: "
+            + ", ".join(map(str, example_ids))
+        )
+
+    if "horizon_scope" not in paths.columns:
+        paths["horizon_scope"] = "provided_stock_path"
+
+    keep_columns = [
+        "episode_id",
+        "date",
+        "stock_day",
+        "stock_return",
+        "horizon_scope",
+    ]
+    if price_column is not None:
+        paths["stock_price"] = pd.to_numeric(paths[price_column], errors="coerce")
+        keep_columns.append("stock_price")
+    return paths[keep_columns].reset_index(drop=True)
+
+
+def load_episode_stock_paths_for_eaat(
+    *,
+    config: dict[str, Any],
+    step_rollouts_df: pd.DataFrame,
+    policy_df: pd.DataFrame,
+    source_path: Path,
+    expected_splits: list[str] | None = None,
+) -> tuple[pd.DataFrame, dict[str, Any]]:
+    splits = SPLIT_ORDER if expected_splits is None else expected_splits
+    policies = policy_df["policy_name"].tolist()
+    rollout_scope = step_rollouts_df[
+        step_rollouts_df["split"].isin(splits)
+        & step_rollouts_df["policy_name"].isin(policies)
+    ].copy()
+    validate_required_split_policy_pairs(
+        rollout_scope,
+        policy_df,
+        source_path=source_path,
+        expected_splits=splits,
+    )
+    episode_ids = sorted(rollout_scope["episode_id"].astype(str).unique().tolist())
+    if not episode_ids:
+        raise ValueError("No episodes available for Step 3B EAAT metric calculation.")
+
+    episode_dataset_path = resolve_project_path(require_nested(config, "environment.parquet_path"))
+    episode_required_columns = [
+        "episode_id",
+        "date",
+        "ticker",
+        "simulated_purchase_date",
+        "simulated_purchase_price",
+        "tax_transition_date",
+    ]
+    episode_optional_columns = [
+        "trigger_date",
+        *RETURN_COLUMN_CANDIDATES,
+        *PRICE_COLUMN_CANDIDATES,
+    ]
+    episode_df = read_parquet_columns(
+        episode_dataset_path,
+        required_columns=episode_required_columns,
+        optional_columns=episode_optional_columns,
+    )
+    episode_df["episode_id"] = episode_df["episode_id"].astype(str)
+    episode_df = episode_df[episode_df["episode_id"].isin(episode_ids)].copy()
+    missing_episode_ids = sorted(set(episode_ids) - set(episode_df["episode_id"].unique()))
+    if missing_episode_ids:
+        raise ValueError(
+            "Environment episode dataset is missing Step 3B episode_id values. "
+            "Examples: " + ", ".join(missing_episode_ids[:5])
+        )
+    for column in ["date", "simulated_purchase_date", "tax_transition_date"]:
+        episode_df[column] = pd.to_datetime(episode_df[column], errors="coerce")
+    if episode_df[["date", "simulated_purchase_date", "tax_transition_date"]].isna().any().any():
+        raise ValueError(
+            "Environment episode dataset has invalid date, simulated_purchase_date, "
+            f"or tax_transition_date values in {episode_dataset_path}."
+        )
+
+    metadata_aggs: dict[str, Any] = {
+        "ticker": ("ticker", "first"),
+        "simulated_purchase_date": ("simulated_purchase_date", "first"),
+        "simulated_purchase_price": ("simulated_purchase_price", "first"),
+        "tax_transition_date": ("tax_transition_date", "first"),
+        "first_available_episode_date": ("date", "min"),
+        "terminal_date": ("date", "max"),
+    }
+    if "trigger_date" in episode_df.columns:
+        metadata_aggs["trigger_date"] = ("trigger_date", "first")
+    metadata = (
+        episode_df.groupby("episode_id", sort=False)
+        .agg(**metadata_aggs)
+        .reset_index()
+    )
+    metadata["simulated_purchase_price"] = pd.to_numeric(
+        metadata["simulated_purchase_price"],
+        errors="coerce",
+    )
+    if metadata["simulated_purchase_price"].isna().any():
+        raise ValueError(
+            "Environment episode dataset has missing/non-numeric "
+            f"simulated_purchase_price values in {episode_dataset_path}."
+        )
+
+    stock_source_path = resolve_step3b_stock_source_path()
+    stock_panel: pd.DataFrame | None = None
+    stock_source_price_or_return: str | None = None
+    if stock_source_path is not None:
+        stock_columns = parquet_column_names(stock_source_path)
+        stock_source_price_or_return = (
+            first_existing_column(stock_columns, RETURN_COLUMN_CANDIDATES)
+            or first_existing_column(stock_columns, PRICE_COLUMN_CANDIDATES)
+        )
+        stock_optional_columns = [
+            column
+            for column in [stock_source_price_or_return]
+            if column is not None
+        ]
+        stock_panel = read_parquet_columns(
+            stock_source_path,
+            required_columns=["date", "ticker"],
+            optional_columns=stock_optional_columns,
+        )
+        stock_panel["date"] = pd.to_datetime(stock_panel["date"], errors="coerce")
+        if stock_panel["date"].isna().any():
+            raise ValueError(
+                f"Stock source has invalid dates for Step 3B EAAT: {stock_source_path}"
+            )
+        stock_panel = stock_panel.sort_values(["ticker", "date"], kind="mergesort")
+
+    if stock_panel is None:
+        stock_by_ticker: dict[str, pd.DataFrame] = {}
+    else:
+        stock_by_ticker = {
+            str(ticker): group.reset_index(drop=True)
+            for ticker, group in stock_panel.groupby("ticker", sort=False)
+        }
+
+    episode_price_or_return = (
+        first_existing_column(set(episode_df.columns), RETURN_COLUMN_CANDIDATES)
+        or first_existing_column(set(episode_df.columns), PRICE_COLUMN_CANDIDATES)
+    )
+    path_frames: list[pd.DataFrame] = []
+    horizon_counts: dict[str, int] = {}
+    shorter_horizon_examples: list[str] = []
+
+    for row in metadata.itertuples(index=False):
+        episode_id = str(row.episode_id)
+        ticker = str(row.ticker)
+        purchase_date = pd.Timestamp(row.simulated_purchase_date)
+        terminal_date = pd.Timestamp(row.terminal_date)
+        full_path: pd.DataFrame | None = None
+        if ticker in stock_by_ticker:
+            ticker_panel = stock_by_ticker[ticker]
+            full_path = ticker_panel[
+                ticker_panel["date"].between(purchase_date, terminal_date)
+            ].copy()
+            full_path_has_horizon = (
+                not full_path.empty
+                and pd.Timestamp(full_path["date"].iloc[0]) == purchase_date
+                and pd.Timestamp(full_path["date"].iloc[-1]) == terminal_date
+            )
+            if not full_path_has_horizon:
+                full_path = None
+
+        if full_path is not None:
+            path = full_path.copy()
+            path["episode_id"] = episode_id
+            path["horizon_scope"] = "full_day0_to_terminal"
+        else:
+            fallback = episode_df[episode_df["episode_id"].eq(episode_id)].copy()
+            if episode_price_or_return is None:
+                raise ValueError(
+                    "Step 3B EAAT metrics could not recover a full day-0 stock path "
+                    "and the environment episode dataset does not contain a return "
+                    "column or adj_close/close fallback price column."
+                )
+            fallback = fallback.sort_values("date", kind="mergesort")
+            path = fallback[["episode_id", "date", episode_price_or_return]].copy()
+            path["horizon_scope"] = "available_episode_rollout_window"
+            shorter_horizon_examples.append(episode_id)
+
+        horizon_scope = str(path["horizon_scope"].iloc[0])
+        horizon_counts[horizon_scope] = horizon_counts.get(horizon_scope, 0) + 1
+        path_frames.append(path)
+
+    stock_paths = pd.concat(path_frames, ignore_index=True)
+    prepared_paths = prepare_stock_paths_for_eaat(
+        stock_paths,
+        source_path=stock_source_path or episode_dataset_path,
+    )
+    metadata_notes = {
+        "episode_dataset_path": episode_dataset_path,
+        "stock_source_path": stock_source_path,
+        "stock_source_column": stock_source_price_or_return,
+        "horizon_counts": horizon_counts,
+        "shorter_horizon_examples": shorter_horizon_examples[:10],
+    }
+    return prepared_paths, metadata_notes
+
+
+def sale_day_for_date(
+    date_to_stock_day: dict[pd.Timestamp, int],
+    sale_date: pd.Timestamp,
+    *,
+    episode_id: str,
+    source_path: Path,
+) -> int:
+    sale_timestamp = pd.Timestamp(sale_date)
+    if sale_timestamp not in date_to_stock_day:
+        raise ValueError(
+            "Cannot map sale date to a stock-path trading day for Step 3B EAAT "
+            f"metrics: episode_id={episode_id}, sale_date={sale_timestamp.date()}, "
+            f"source={source_path}."
+        )
+    return int(date_to_stock_day[sale_timestamp])
+
+
+def after_tax_return_from_increment(
+    *,
+    weight: float,
+    increment: float,
+    fallback_unrealized_return: float | None,
+    fallback_tax_rate: float | None,
+) -> float:
+    if weight <= 0.0:
+        return np.nan
+    if np.isfinite(increment):
+        return float(increment / weight)
+    if fallback_unrealized_return is None or not np.isfinite(fallback_unrealized_return):
+        return np.nan
+    tax_rate = 0.0
+    if fallback_tax_rate is not None and np.isfinite(fallback_tax_rate):
+        tax_rate = float(fallback_tax_rate)
+    taxable_gain = max(float(fallback_unrealized_return), 0.0)
+    return float(float(fallback_unrealized_return) - taxable_gain * tax_rate)
+
+
+def stock_volatility_for_window(stock_returns_by_day: pd.Series, sale_day: int) -> float:
+    if sale_day <= 0:
+        return np.nan
+    returns = stock_returns_by_day.loc[
+        (stock_returns_by_day.index >= 1) & (stock_returns_by_day.index <= sale_day)
+    ].dropna()
+    if len(returns) < 2:
+        return np.nan
+    daily_std = float(returns.std(ddof=1))
+    if not np.isfinite(daily_std):
+        return np.nan
+    return float(daily_std * SHARPE_ANNUALIZATION_FACTOR)
+
+
+def build_episode_sale_tranches(
+    episode_steps: pd.DataFrame,
+    *,
+    date_to_stock_day: dict[pd.Timestamp, int],
+    terminal_date: pd.Timestamp,
+    terminal_day: int,
+    episode_id: str,
+    source_path: Path,
+) -> list[dict[str, Any]]:
+    tranches: list[dict[str, Any]] = []
+    steps = episode_steps.sort_values("step_in_episode", kind="mergesort").copy()
+
+    cumulative_discretionary_weight = 0.0
+    for step in steps.itertuples(index=False):
+        weight = float(getattr(step, "action_fraction_executed", 0.0) or 0.0)
+        if weight <= TIE_TOLERANCE:
+            continue
+        sale_date = pd.Timestamp(getattr(step, "date"))
+        sale_day = sale_day_for_date(
+            date_to_stock_day,
+            sale_date,
+            episode_id=episode_id,
+            source_path=source_path,
+        )
+        increment = float(getattr(step, "realized_after_tax_increment", np.nan))
+        fallback_unrealized_return = getattr(step, "unrealized_gains_pct", np.nan)
+        fallback_tax_rate = getattr(step, "applicable_tax_rate", np.nan)
+        after_tax_return = after_tax_return_from_increment(
+            weight=weight,
+            increment=increment,
+            fallback_unrealized_return=(
+                float(fallback_unrealized_return)
+                if pd.notna(fallback_unrealized_return)
+                else None
+            ),
+            fallback_tax_rate=(
+                float(fallback_tax_rate) if pd.notna(fallback_tax_rate) else None
+            ),
+        )
+        cumulative_discretionary_weight += weight
+        tranches.append(
+            {
+                "tranche_type": "discretionary_sale",
+                "sale_date": sale_date,
+                "sale_trading_day": sale_day,
+                "weight": weight,
+                "after_tax_return": after_tax_return,
+            }
+        )
+
+    terminal_liquidation = coerce_bool_series(steps["terminal_liquidation_executed"])
+    if terminal_liquidation.any():
+        terminal_row = steps.loc[terminal_liquidation].iloc[-1]
+        terminal_weight = float(max(0.0, 1.0 - cumulative_discretionary_weight))
+        if terminal_weight > TIE_TOLERANCE:
+            increment = float(
+                terminal_row.get("terminal_liquidation_after_tax_increment", np.nan)
+            )
+            fallback_unrealized_return = terminal_row.get(
+                "terminal_liquidation_full_position_pnl",
+                terminal_row.get("unrealized_gains_pct", np.nan),
+            )
+            fallback_tax_rate = terminal_row.get(
+                "terminal_liquidation_tax_rate",
+                terminal_row.get("applicable_tax_rate", np.nan),
+            )
+            after_tax_return = after_tax_return_from_increment(
+                weight=terminal_weight,
+                increment=increment,
+                fallback_unrealized_return=(
+                    float(fallback_unrealized_return)
+                    if pd.notna(fallback_unrealized_return)
+                    else None
+                ),
+                fallback_tax_rate=(
+                    float(fallback_tax_rate) if pd.notna(fallback_tax_rate) else None
+                ),
+            )
+            tranches.append(
+                {
+                    "tranche_type": "terminal_liquidation",
+                    "sale_date": terminal_date,
+                    "sale_trading_day": terminal_day,
+                    "weight": terminal_weight,
+                    "after_tax_return": after_tax_return,
+                }
+            )
+
+    tranches = sorted(
+        tranches,
+        key=lambda item: (
+            int(item["sale_trading_day"]),
+            1 if item["tranche_type"] == "terminal_liquidation" else 0,
+        ),
+    )
+    return tranches
+
+
+def exposure_adjusted_policy_returns(
+    stock_returns_by_day: pd.Series,
+    tranches: list[dict[str, Any]],
+    terminal_day: int,
+) -> np.ndarray:
+    returns: list[float] = []
+    for day in range(1, terminal_day + 1):
+        sold_before_interval_start = sum(
+            float(tranche["weight"])
+            for tranche in tranches
+            if int(tranche["sale_trading_day"]) < day
+        )
+        stock_weight = float(np.clip(1.0 - sold_before_interval_start, 0.0, 1.0))
+        cash_weight = float(1.0 - stock_weight)
+        stock_return = float(stock_returns_by_day.loc[day])
+        returns.append(
+            stock_weight * stock_return + cash_weight * DAILY_RISK_FREE_RATE
+        )
+    return np.asarray(returns, dtype=float)
+
+
+def compute_eaat_episode_record(
+    episode_steps: pd.DataFrame,
+    stock_path: pd.DataFrame,
+    *,
+    source_path: Path,
+) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    first_step = episode_steps.iloc[0]
+    split = str(first_step["split"])
+    policy_name = str(first_step["policy_name"])
+    episode_id = str(first_step["episode_id"])
+
+    stock_path = stock_path.sort_values("stock_day", kind="mergesort").copy()
+    terminal_day = int(stock_path["stock_day"].max())
+    terminal_date = pd.Timestamp(
+        stock_path.loc[stock_path["stock_day"].idxmax(), "date"]
+    )
+    horizon_scope = ";".join(sorted(stock_path["horizon_scope"].astype(str).unique()))
+    date_to_stock_day = {
+        pd.Timestamp(row.date): int(row.stock_day)
+        for row in stock_path[["date", "stock_day"]].itertuples(index=False)
+    }
+    stock_returns_by_day = stock_path.set_index("stock_day")["stock_return"]
+
+    tranches = build_episode_sale_tranches(
+        episode_steps,
+        date_to_stock_day=date_to_stock_day,
+        terminal_date=terminal_date,
+        terminal_day=terminal_day,
+        episode_id=episode_id,
+        source_path=source_path,
+    )
+    weight_sum = float(sum(float(tranche["weight"]) for tranche in tranches))
+    valid_weights = bool(math.isclose(weight_sum, 1.0, rel_tol=1e-9, abs_tol=1e-8))
+    if not valid_weights:
+        raise ValueError(
+            "Step 3B EAAT sale-tranche weights do not sum to 1.0 after terminal "
+            f"liquidation: split={split}, policy={policy_name}, "
+            f"episode_id={episode_id}, weight_sum={weight_sum}."
+        )
+
+    terminal_wealth = 0.0
+    tranche_records: list[dict[str, Any]] = []
+    ta_weighted_return = 0.0
+    ta_weighted_volatility = 0.0
+    ta_valid = True
+    for tranche_index, tranche in enumerate(tranches, start=1):
+        weight = float(tranche["weight"])
+        after_tax_return = float(tranche["after_tax_return"])
+        sale_day = int(tranche["sale_trading_day"])
+        cash_compound_days = int(terminal_day - sale_day)
+        after_tax_wealth_at_sale = float(weight * (1.0 + after_tax_return))
+        terminal_wealth_contribution = float(
+            after_tax_wealth_at_sale
+            * (1.0 + DAILY_RISK_FREE_RATE) ** cash_compound_days
+        )
+        terminal_wealth += terminal_wealth_contribution
+
+        tranche_annualized_return = np.nan
+        if sale_day > 0 and (1.0 + after_tax_return) > 0.0:
+            tranche_annualized_return = float(
+                (1.0 + after_tax_return)
+                ** (ANNUALIZATION_FACTOR / float(sale_day))
+                - 1.0
+            )
+        tranche_volatility = stock_volatility_for_window(
+            stock_returns_by_day,
+            sale_day,
+        )
+        tranche_valid = bool(
+            sale_day > 0
+            and np.isfinite(tranche_annualized_return)
+            and np.isfinite(tranche_volatility)
+        )
+        if tranche_valid:
+            ta_weighted_return += weight * float(tranche_annualized_return)
+            ta_weighted_volatility += weight * float(tranche_volatility)
+        else:
+            ta_valid = False
+
+        tranche_records.append(
+            {
+                "split": split,
+                "policy_name": policy_name,
+                "episode_id": episode_id,
+                "tranche_index": tranche_index,
+                "tranche_type": tranche["tranche_type"],
+                "sale_date": pd.Timestamp(tranche["sale_date"]).date().isoformat(),
+                "sale_trading_day": sale_day,
+                "weight": weight,
+                "after_tax_return": after_tax_return,
+                "after_tax_wealth_at_sale": after_tax_wealth_at_sale,
+                "cash_compound_days_to_terminal": cash_compound_days,
+                "EAAT_terminal_wealth_contribution": terminal_wealth_contribution,
+                "TA_EAAT_annualized_after_tax_return": tranche_annualized_return,
+                "TA_EAAT_annualized_stock_volatility": tranche_volatility,
+                "TA_EAAT_valid_tranche": tranche_valid,
+            }
+        )
+
+    eaat_annualized_return = np.nan
+    if terminal_day > 0 and terminal_wealth > 0.0:
+        eaat_annualized_return = float(
+            terminal_wealth ** (ANNUALIZATION_FACTOR / float(terminal_day)) - 1.0
+        )
+
+    policy_returns = (
+        exposure_adjusted_policy_returns(stock_returns_by_day, tranches, terminal_day)
+        if terminal_day > 0
+        else np.asarray([], dtype=float)
+    )
+    eaat_volatility = np.nan
+    if len(policy_returns) >= 2:
+        policy_daily_std = float(np.std(policy_returns, ddof=1))
+        if np.isfinite(policy_daily_std):
+            eaat_volatility = float(policy_daily_std * SHARPE_ANNUALIZATION_FACTOR)
+
+    eaat_sharpe = np.nan
+    if (
+        np.isfinite(eaat_annualized_return)
+        and np.isfinite(eaat_volatility)
+        and eaat_volatility > 0.0
+    ):
+        eaat_sharpe = float(
+            (eaat_annualized_return - ANNUAL_RISK_FREE_RATE) / eaat_volatility
+        )
+
+    ta_annualized_return = float(ta_weighted_return) if ta_valid else np.nan
+    ta_annualized_volatility = (
+        float(ta_weighted_volatility)
+        if ta_valid and np.isfinite(ta_weighted_volatility)
+        else np.nan
+    )
+    ta_sharpe = np.nan
+    if (
+        np.isfinite(ta_annualized_return)
+        and np.isfinite(ta_annualized_volatility)
+        and ta_annualized_volatility > 0.0
+    ):
+        ta_sharpe = float(
+            (ta_annualized_return - ANNUAL_RISK_FREE_RATE)
+            / ta_annualized_volatility
+        )
+
+    episode_record = {
+        "split": split,
+        "policy_name": policy_name,
+        "episode_id": episode_id,
+        "horizon_scope": horizon_scope,
+        "terminal_date": terminal_date.date().isoformat(),
+        "terminal_trading_day": terminal_day,
+        "num_stock_return_observations": int(stock_path["stock_return"].notna().sum()),
+        "num_sale_tranches": len(tranches),
+        "sale_tranche_weight_sum": weight_sum,
+        "valid_sale_tranche_weights": valid_weights,
+        "EAAT_terminal_after_tax_wealth": terminal_wealth,
+        "EAAT_annualized_after_tax_return": eaat_annualized_return,
+        "EAAT_annualized_volatility": eaat_volatility,
+        "EAAT_Sharpe": eaat_sharpe,
+        "TA_EAAT_annualized_after_tax_return": ta_annualized_return,
+        "TA_EAAT_annualized_volatility": ta_annualized_volatility,
+        "TA_EAAT_Sharpe": ta_sharpe,
+        "annual_risk_free_rate": ANNUAL_RISK_FREE_RATE,
+        "daily_risk_free_rate": DAILY_RISK_FREE_RATE,
+        "annualization_factor": ANNUALIZATION_FACTOR,
+    }
+    return episode_record, tranche_records
+
+
+def build_eaat_sharpe_metrics(
+    step_rollouts_df: pd.DataFrame,
+    stock_paths_df: pd.DataFrame,
+    policy_df: pd.DataFrame,
+    *,
+    source_path: Path,
+    expected_splits: list[str] | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    required_columns = [
+        "split",
+        "policy_name",
+        "episode_id",
+        "step_in_episode",
+        "date",
+        "action_fraction_executed",
+        "remaining_fraction",
+        "terminal_liquidation_executed",
+    ]
+    require_columns(step_rollouts_df, required_columns, source=source_path)
+    splits = SPLIT_ORDER if expected_splits is None else expected_splits
+    policies = policy_df["policy_name"].tolist()
+    steps = step_rollouts_df[
+        step_rollouts_df["split"].isin(splits)
+        & step_rollouts_df["policy_name"].isin(policies)
+    ].copy()
+    validate_required_split_policy_pairs(
+        steps,
+        policy_df,
+        source_path=source_path,
+        expected_splits=splits,
+    )
+
+    numeric_columns = [
+        "step_in_episode",
+        "action_fraction_executed",
+        "remaining_fraction",
+        "realized_after_tax_increment",
+        "terminal_liquidation_after_tax_increment",
+        "applicable_tax_rate",
+        "terminal_liquidation_tax_rate",
+        "unrealized_gains_pct",
+        "terminal_liquidation_full_position_pnl",
+    ]
+    for column in numeric_columns:
+        if column in steps.columns:
+            steps[column] = pd.to_numeric(steps[column], errors="coerce")
+    steps["date"] = pd.to_datetime(steps["date"], errors="coerce")
+    if steps["date"].isna().any():
+        raise ValueError(
+            "Cannot build Step 3B EAAT metrics because rollout date contains "
+            f"invalid or missing values in {source_path}."
+        )
+    steps["episode_id"] = steps["episode_id"].astype(str)
+    steps["policy_name"] = steps["policy_name"].astype(str)
+    steps["split"] = steps["split"].astype(str)
+
+    stock_paths = prepare_stock_paths_for_eaat(
+        stock_paths_df,
+        source_path=source_path,
+    )
+    available_stock_episodes = set(stock_paths["episode_id"].unique())
+    missing_stock_episodes = sorted(set(steps["episode_id"].unique()) - available_stock_episodes)
+    if missing_stock_episodes:
+        raise ValueError(
+            "Step 3B EAAT metrics require daily stock paths for every rollout "
+            "episode. Missing examples: "
+            + ", ".join(missing_stock_episodes[:5])
+        )
+
+    stock_path_by_episode = {
+        episode_id: group.copy()
+        for episode_id, group in stock_paths.groupby("episode_id", sort=False)
+    }
+    episode_records: list[dict[str, Any]] = []
+    tranche_records: list[dict[str, Any]] = []
+    for _, episode_steps in steps.groupby(
+        ["split", "policy_name", "episode_id"],
+        sort=False,
+    ):
+        episode_id = str(episode_steps["episode_id"].iloc[0])
+        episode_record, episode_tranches = compute_eaat_episode_record(
+            episode_steps,
+            stock_path_by_episode[episode_id],
+            source_path=source_path,
+        )
+        episode_records.append(episode_record)
+        tranche_records.extend(episode_tranches)
+
+    episode_metrics = pd.DataFrame(episode_records)
+    tranche_df = pd.DataFrame(tranche_records)
+
+    summary = (
+        episode_metrics.groupby(["split", "policy_name"], sort=False)
+        .agg(
+            num_episodes=("episode_id", "nunique"),
+            num_valid_EAAT_Sharpe_episodes=("EAAT_Sharpe", nonmissing_count),
+            mean_EAAT_Sharpe=("EAAT_Sharpe", "mean"),
+            median_EAAT_Sharpe=("EAAT_Sharpe", "median"),
+            std_EAAT_Sharpe=("EAAT_Sharpe", "std"),
+            pct_positive_EAAT_Sharpe=("EAAT_Sharpe", pct_positive_nonmissing),
+            mean_EAAT_annualized_after_tax_return=(
+                "EAAT_annualized_after_tax_return",
+                "mean",
+            ),
+            median_EAAT_annualized_after_tax_return=(
+                "EAAT_annualized_after_tax_return",
+                "median",
+            ),
+            mean_EAAT_annualized_volatility=("EAAT_annualized_volatility", "mean"),
+            median_EAAT_annualized_volatility=(
+                "EAAT_annualized_volatility",
+                "median",
+            ),
+            num_valid_TA_EAAT_Sharpe_episodes=(
+                "TA_EAAT_Sharpe",
+                nonmissing_count,
+            ),
+            mean_TA_EAAT_Sharpe=("TA_EAAT_Sharpe", "mean"),
+            median_TA_EAAT_Sharpe=("TA_EAAT_Sharpe", "median"),
+            std_TA_EAAT_Sharpe=("TA_EAAT_Sharpe", "std"),
+            pct_positive_TA_EAAT_Sharpe=(
+                "TA_EAAT_Sharpe",
+                pct_positive_nonmissing,
+            ),
+            mean_TA_EAAT_annualized_after_tax_return=(
+                "TA_EAAT_annualized_after_tax_return",
+                "mean",
+            ),
+            median_TA_EAAT_annualized_after_tax_return=(
+                "TA_EAAT_annualized_after_tax_return",
+                "median",
+            ),
+            mean_TA_EAAT_annualized_volatility=(
+                "TA_EAAT_annualized_volatility",
+                "mean",
+            ),
+            median_TA_EAAT_annualized_volatility=(
+                "TA_EAAT_annualized_volatility",
+                "median",
+            ),
+            horizon_scope=(
+                "horizon_scope",
+                lambda series: ";".join(sorted(set(series.dropna().astype(str)))),
+            ),
+        )
+        .reset_index()
+    )
+    summary["annual_risk_free_rate"] = ANNUAL_RISK_FREE_RATE
+    summary["daily_risk_free_rate"] = DAILY_RISK_FREE_RATE
+    summary["annualization_factor"] = ANNUALIZATION_FACTOR
+    summary["risk_free_rate_source"] = RISK_FREE_RATE_SOURCE
+    summary["cash_reinvestment_assumption"] = CASH_REINVESTMENT_ASSUMPTION
+
+    summary = summary.merge(
+        policy_df[["policy_name", "policy_order"]],
+        on="policy_name",
+        how="left",
+    )
+    split_order_map = {split: index for index, split in enumerate(splits)}
+    summary["split_order"] = summary["split"].map(split_order_map)
+    summary = summary.sort_values(["split_order", "policy_order"]).drop(
+        columns=["split_order", "policy_order"]
+    )
+    integer_columns = [
+        "num_episodes",
+        "num_valid_EAAT_Sharpe_episodes",
+        "num_valid_TA_EAAT_Sharpe_episodes",
+    ]
+    for column in integer_columns:
+        summary[column] = summary[column].astype(int)
+
+    episode_metrics = episode_metrics.merge(
+        policy_df[["policy_name", "policy_order"]],
+        on="policy_name",
+        how="left",
+    )
+    episode_metrics["split_order"] = episode_metrics["split"].map(split_order_map)
+    episode_metrics = episode_metrics.sort_values(
+        ["split_order", "policy_order", "episode_id"]
+    ).drop(columns=["split_order", "policy_order"])
+    if not tranche_df.empty:
+        tranche_df = tranche_df.merge(
+            policy_df[["policy_name", "policy_order"]],
+            on="policy_name",
+            how="left",
+        )
+        tranche_df["split_order"] = tranche_df["split"].map(split_order_map)
+        tranche_df = tranche_df.sort_values(
+            ["split_order", "policy_order", "episode_id", "tranche_index"]
+        ).drop(columns=["split_order", "policy_order"])
+    else:
+        tranche_df = pd.DataFrame(columns=STEP3B_TRANCHE_RECORD_COLUMNS)
+
+    return (
+        summary[STEP3B_EAAT_COLUMNS],
+        episode_metrics[STEP3B_EPISODE_EAAT_COLUMNS],
+        tranche_df[STEP3B_TRANCHE_RECORD_COLUMNS],
+    )
+
+
 def build_risk_adjusted_path_metrics(
     step_rollouts_df: pd.DataFrame,
     policy_df: pd.DataFrame,
@@ -1774,7 +2745,7 @@ def build_risk_adjusted_path_metrics(
 
 def write_step3b_notes(path: Path) -> None:
     notes = [
-        "Step 3B risk-adjusted path metrics notes",
+        "Step 3B legacy risk-adjusted path diagnostics notes",
         "A constant annual risk-free rate of 4% is assumed.",
         "The daily risk-free rate is computed as (1 + 0.04) ** (1 / 252) - 1.",
         "Annualization uses sqrt(252).",
@@ -1789,26 +2760,808 @@ def write_step3b_notes(path: Path) -> None:
     path.write_text("\n".join(notes), encoding="utf-8")
 
 
-def build_step3b_outputs(run_path: Path, output_dir: Path, policy_df: pd.DataFrame) -> pd.DataFrame:
+def write_step3b_eaat_notes(
+    path: Path,
+    *,
+    metadata_notes: dict[str, Any],
+) -> None:
+    horizon_counts = metadata_notes.get("horizon_counts", {})
+    horizon_summary = "; ".join(
+        f"{scope}={count}" for scope, count in sorted(horizon_counts.items())
+    )
+    if not horizon_summary:
+        horizon_summary = "unknown"
+
+    shorter_examples = metadata_notes.get("shorter_horizon_examples", [])
+    shorter_line = (
+        "shorter_available_horizon_episode_examples: "
+        + ", ".join(map(str, shorter_examples))
+        if shorter_examples
+        else "shorter_available_horizon_episode_examples: none"
+    )
+    stock_source_path = metadata_notes.get("stock_source_path")
+    stock_source_text = (
+        relative_project_path(stock_source_path)
+        if isinstance(stock_source_path, Path)
+        else "not_available; environment episode parquet fallback used"
+    )
+
+    notes = [
+        "Step 3B EAAT Sharpe metrics notes",
+        "EAAT Sharpe uses terminal after-tax wealth and exposure-adjusted daily stock/cash volatility.",
+        "TA-EAAT Sharpe uses sale-level tranches and matching holding-period volatility.",
+        "Final after-tax value remains the primary economic metric.",
+        "These Sharpe metrics are supplementary risk-adjusted diagnostics.",
+        "The annual risk-free rate is 4%.",
+        "Cash proceeds after sale are assumed to earn the daily risk-free rate.",
+        "The daily risk-free rate is computed as (1 + 0.04) ** (1 / 252) - 1.",
+        "EAAT terminal after-tax wealth is computed from sale tranches, not from raw after_tax_total_value path returns.",
+        "EAAT volatility uses daily stock/cash policy returns with exposure measured at the start of each return interval.",
+        "TA-EAAT annualizes each sale tranche from original purchase day to sale day and uses stock volatility over the same holding window.",
+        "Only after-tax tranche returns enter EAAT and TA-EAAT; pre-tax values are audit-only checks and are not Step 3B metric columns.",
+        "step3b_median_episode_eaat_verification.md shows the median preferred-policy test episode calculation for both the after-tax metric and the pre-tax counterfactual check.",
+        "TA-EAAT can become extremely large when a positive after-tax tranche return is annualized over a very short holding window; see step3b_one_case_eaat_verification.md for a concrete audit case.",
+        f"annualization_factor: {ANNUALIZATION_FACTOR}",
+        f"annual_risk_free_rate: {ANNUAL_RISK_FREE_RATE}",
+        f"daily_risk_free_rate: {DAILY_RISK_FREE_RATE}",
+        "environment_episode_dataset: "
+        f"{relative_project_path(metadata_notes['episode_dataset_path'])}",
+        f"stock_path_source: {stock_source_text}",
+        f"horizon_used_counts: {horizon_summary}",
+        (
+            "horizon_used_note: full_day0_to_terminal means original simulated "
+            "purchase date through the common terminal trading date. "
+            "available_episode_rollout_window means the full day-0 path could "
+            "not be recovered and the environment episode window was used."
+        ),
+        shorter_line,
+        "Legacy Step 3B path diagnostics are retained separately in step3b_policy_risk_adjusted_path_metrics.csv.",
+        "",
+    ]
+    path.write_text("\n".join(notes), encoding="utf-8")
+
+
+def format_verification_value(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "NaN"
+    if isinstance(value, (np.bool_, bool)):
+        return str(bool(value))
+    if isinstance(value, (pd.Timestamp,)):
+        return value.date().isoformat()
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if not np.isfinite(number):
+        return str(number)
+    if abs(number) >= 1.0e6 or (0.0 < abs(number) < 1.0e-4):
+        return f"{number:.12e}"
+    return f"{number:.12f}".rstrip("0").rstrip(".")
+
+
+def write_step3b_one_case_verification(
+    *,
+    output_dir: Path,
+    config: dict[str, Any],
+    step_rollouts_df: pd.DataFrame,
+    episode_metrics_df: pd.DataFrame,
+    tranche_records_df: pd.DataFrame,
+) -> None:
+    case = STEP3B_VERIFICATION_CASE
+    split = case["split"]
+    policy_name = case["policy_name"]
+    episode_id = case["episode_id"]
+
+    case_episode = episode_metrics_df[
+        episode_metrics_df["split"].eq(split)
+        & episode_metrics_df["policy_name"].eq(policy_name)
+        & episode_metrics_df["episode_id"].eq(episode_id)
+    ]
+    case_tranches = tranche_records_df[
+        tranche_records_df["split"].eq(split)
+        & tranche_records_df["policy_name"].eq(policy_name)
+        & tranche_records_df["episode_id"].eq(episode_id)
+    ].sort_values("tranche_index")
+    case_rollouts = step_rollouts_df[
+        step_rollouts_df["split"].eq(split)
+        & step_rollouts_df["policy_name"].eq(policy_name)
+        & step_rollouts_df["episode_id"].eq(episode_id)
+    ].copy()
+
+    if case_episode.empty or case_tranches.empty or case_rollouts.empty:
+        raise ValueError(
+            "Cannot write Step 3B one-case verification because the configured "
+            f"case is missing: split={split}, policy_name={policy_name}, "
+            f"episode_id={episode_id}."
+        )
+
+    episode_row = case_episode.iloc[0]
+    tranche_row = case_tranches.iloc[0]
+    sale_date = pd.Timestamp(tranche_row["sale_date"])
+    sale_weight = float(tranche_row["weight"])
+    sale_rollout = case_rollouts[
+        pd.to_datetime(case_rollouts["date"], errors="coerce").eq(sale_date)
+        & pd.to_numeric(
+            case_rollouts["action_fraction_executed"],
+            errors="coerce",
+        ).gt(0.0)
+    ]
+    if sale_rollout.empty:
+        raise ValueError(
+            "Cannot write Step 3B one-case verification because no executed sale "
+            f"rollout row matches sale_date={sale_date.date()}."
+        )
+    sale_rollout_row = sale_rollout.iloc[0]
+
+    episode_dataset_path = resolve_project_path(
+        require_nested(config, "environment.parquet_path")
+    )
+    source_episode = read_parquet_columns(
+        episode_dataset_path,
+        required_columns=[
+            "episode_id",
+            "date",
+            "ticker",
+            "adj_close",
+            "simulated_purchase_date",
+            "simulated_purchase_price",
+            "trigger_date",
+            "tax_transition_date",
+            "unrealized_gains_pct",
+        ],
+    )
+    source_episode["episode_id"] = source_episode["episode_id"].astype(str)
+    source_episode["date"] = pd.to_datetime(source_episode["date"], errors="coerce")
+    source_sale_rows = source_episode[
+        source_episode["episode_id"].eq(episode_id)
+        & source_episode["date"].eq(sale_date)
+    ]
+    if source_sale_rows.empty:
+        raise ValueError(
+            "Cannot write Step 3B one-case verification because the sale date "
+            f"is missing from {episode_dataset_path}: episode_id={episode_id}, "
+            f"sale_date={sale_date.date()}."
+        )
+    source_sale_row = source_sale_rows.iloc[0]
+
+    applicable_tax_rate = float(sale_rollout_row["applicable_tax_rate"])
+    pre_tax_return = float(source_sale_row["unrealized_gains_pct"])
+    expected_after_tax_return = (
+        pre_tax_return - max(pre_tax_return, 0.0) * applicable_tax_rate
+    )
+    after_tax_return = float(tranche_row["after_tax_return"])
+    realized_after_tax_increment = float(
+        sale_rollout_row["realized_after_tax_increment"]
+    )
+    after_tax_return_from_rollout = realized_after_tax_increment / sale_weight
+
+    sale_trading_day = int(tranche_row["sale_trading_day"])
+    cash_days = int(tranche_row["cash_compound_days_to_terminal"])
+    expected_terminal_wealth = (
+        sale_weight
+        * (1.0 + after_tax_return)
+        * (1.0 + DAILY_RISK_FREE_RATE) ** cash_days
+    )
+    expected_ta_annualized_return = (
+        (1.0 + after_tax_return)
+        ** (ANNUALIZATION_FACTOR / float(sale_trading_day))
+        - 1.0
+    )
+    ta_volatility = float(tranche_row["TA_EAAT_annualized_stock_volatility"])
+    expected_ta_sharpe = (
+        (expected_ta_annualized_return - ANNUAL_RISK_FREE_RATE) / ta_volatility
+        if ta_volatility > 0.0
+        else np.nan
+    )
+
+    eaat_terminal_wealth_csv = float(episode_row["EAAT_terminal_after_tax_wealth"])
+    ta_annualized_return_csv = float(
+        episode_row["TA_EAAT_annualized_after_tax_return"]
+    )
+    ta_sharpe_csv = float(episode_row["TA_EAAT_Sharpe"])
+    checks = {
+        "after_tax_return_matches_tax_formula": math.isclose(
+            after_tax_return,
+            expected_after_tax_return,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ),
+        "after_tax_return_matches_rollout_increment": math.isclose(
+            after_tax_return,
+            after_tax_return_from_rollout,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ),
+        "eaat_terminal_wealth_matches_csv": math.isclose(
+            expected_terminal_wealth,
+            eaat_terminal_wealth_csv,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ),
+        "ta_annualized_return_matches_csv": math.isclose(
+            expected_ta_annualized_return,
+            ta_annualized_return_csv,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ),
+        "ta_sharpe_matches_csv": math.isclose(
+            expected_ta_sharpe,
+            ta_sharpe_csv,
+            rel_tol=1e-9,
+            abs_tol=1e-9,
+        ),
+    }
+    if not all(checks.values()):
+        failed = [key for key, passed in checks.items() if not passed]
+        raise ValueError(
+            "Step 3B one-case verification failed: " + ", ".join(failed)
+        )
+
+    audit_rows = [
+        ("split", split),
+        ("policy_name", policy_name),
+        ("episode_id", episode_id),
+        ("ticker", source_sale_row["ticker"]),
+        ("simulated_purchase_date", source_sale_row["simulated_purchase_date"]),
+        ("trigger_date", source_sale_row["trigger_date"]),
+        ("sale_date", sale_date),
+        ("tax_transition_date", source_sale_row["tax_transition_date"]),
+        ("sale_trading_day", sale_trading_day),
+        ("cash_days_to_terminal", cash_days),
+        ("source_unrealized_return_for_tax_check", pre_tax_return),
+        ("applicable_tax_rate", applicable_tax_rate),
+        ("realized_after_tax_increment", realized_after_tax_increment),
+        ("sale_weight", sale_weight),
+        ("after_tax_return_from_rollout_increment", after_tax_return_from_rollout),
+        ("after_tax_return_in_tranche_file", after_tax_return),
+        ("expected_after_tax_return_from_tax_formula", expected_after_tax_return),
+        ("expected_EAAT_terminal_wealth", expected_terminal_wealth),
+        ("EAAT_terminal_after_tax_wealth_in_csv", eaat_terminal_wealth_csv),
+        ("expected_TA_EAAT_annualized_after_tax_return", expected_ta_annualized_return),
+        ("TA_EAAT_annualized_after_tax_return_in_csv", ta_annualized_return_csv),
+        ("TA_EAAT_annualized_volatility_in_csv", ta_volatility),
+        ("expected_TA_EAAT_Sharpe", expected_ta_sharpe),
+        ("TA_EAAT_Sharpe_in_csv", ta_sharpe_csv),
+    ]
+    table_lines = [
+        "| Field | Value |",
+        "|---|---:|",
+        *[
+            f"| {field} | {format_verification_value(value)} |"
+            for field, value in audit_rows
+        ],
+    ]
+    check_lines = [
+        "| Check | Result |",
+        "|---|---:|",
+        *[
+            f"| {field} | {'PASS' if passed else 'FAIL'} |"
+            for field, passed in checks.items()
+        ],
+    ]
+    lines = [
+        "# Step 3B One-Case EAAT Verification",
+        "",
+        (
+            "This audit verifies why the TA-EAAT metric is extremely large for "
+            "`validation / random_policy / JD_2022-03-14`."
+        ),
+        "",
+        "The tranche file contains `after_tax_return`; there is no pre-tax tranche-return metric in the Step 3B EAAT output. The source unrealized return below is shown only to verify the tax transformation.",
+        "",
+        "Core recomputation:",
+        "",
+        f"- After-tax tranche return: `{format_verification_value(after_tax_return)}`.",
+        f"- EAAT terminal wealth: `(1 + after_tax_return) * (1 + daily_rf) ** {cash_days}` = `{format_verification_value(expected_terminal_wealth)}`.",
+        f"- TA-EAAT annualized return: `(1 + after_tax_return) ** (252 / {sale_trading_day}) - 1` = `{format_verification_value(expected_ta_annualized_return)}`.",
+        "",
+        "The very large TA-EAAT value is therefore caused by annualizing a 39.784% after-tax return over only 2 trading days, not by using pre-tax returns.",
+        "",
+        "## Audit Values",
+        "",
+        *table_lines,
+        "",
+        "## Checks",
+        "",
+        *check_lines,
+        "",
+    ]
+    (output_dir / "step3b_one_case_eaat_verification.md").write_text(
+        "\n".join(lines),
+        encoding="utf-8",
+    )
+
+
+def finite_float(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return np.nan
+    return number if np.isfinite(number) else np.nan
+
+
+def values_close(left: float, right: float, *, tolerance: float = 1e-9) -> bool:
+    left_float = finite_float(left)
+    right_float = finite_float(right)
+    if not np.isfinite(left_float) and not np.isfinite(right_float):
+        return True
+    return bool(
+        math.isclose(
+            left_float,
+            right_float,
+            rel_tol=tolerance,
+            abs_tol=tolerance,
+        )
+    )
+
+
+def eaat_terminal_wealth_from_returns(
+    rows: list[dict[str, Any]],
+    *,
+    return_key: str,
+) -> float:
+    wealth = 0.0
+    for row in rows:
+        tranche_return = finite_float(row[return_key])
+        if not np.isfinite(tranche_return):
+            return np.nan
+        wealth += float(
+            finite_float(row["weight"])
+            * (1.0 + tranche_return)
+            * (1.0 + DAILY_RISK_FREE_RATE)
+            ** int(finite_float(row["cash_compound_days_to_terminal"]))
+        )
+    return float(wealth)
+
+
+def annualized_return_from_wealth(wealth: float, terminal_day: int) -> float:
+    if terminal_day <= 0 or not np.isfinite(wealth) or wealth <= 0.0:
+        return np.nan
+    return float(wealth ** (ANNUALIZATION_FACTOR / float(terminal_day)) - 1.0)
+
+
+def ta_eaat_return_from_tranches(
+    rows: list[dict[str, Any]],
+    *,
+    return_key: str,
+) -> float:
+    total_return = 0.0
+    for row in rows:
+        sale_day = int(finite_float(row["sale_trading_day"]))
+        tranche_return = finite_float(row[return_key])
+        if sale_day <= 0 or not np.isfinite(tranche_return) or (1.0 + tranche_return) <= 0.0:
+            return np.nan
+        total_return += float(
+            finite_float(row["weight"])
+            * ((1.0 + tranche_return) ** (ANNUALIZATION_FACTOR / float(sale_day)) - 1.0)
+        )
+    return float(total_return)
+
+
+def ta_eaat_volatility_from_tranches(rows: list[dict[str, Any]]) -> float:
+    total_volatility = 0.0
+    for row in rows:
+        sale_day = int(finite_float(row["sale_trading_day"]))
+        tranche_volatility = finite_float(row["TA_EAAT_annualized_stock_volatility"])
+        if sale_day <= 0 or not np.isfinite(tranche_volatility):
+            return np.nan
+        total_volatility += float(finite_float(row["weight"]) * tranche_volatility)
+    return float(total_volatility)
+
+
+def sharpe_from_return_and_volatility(
+    annualized_return: float,
+    annualized_volatility: float,
+) -> float:
+    if (
+        not np.isfinite(annualized_return)
+        or not np.isfinite(annualized_volatility)
+        or annualized_volatility <= 0.0
+    ):
+        return np.nan
+    return float((annualized_return - ANNUAL_RISK_FREE_RATE) / annualized_volatility)
+
+
+def write_step3b_median_episode_verification(
+    *,
+    output_dir: Path,
+    step_rollouts_df: pd.DataFrame,
+    episode_metrics_df: pd.DataFrame,
+    tranche_records_df: pd.DataFrame,
+) -> None:
+    split = STEP3B_MEDIAN_VERIFICATION_SPLIT
+    policy_name = STEP3B_MEDIAN_VERIFICATION_POLICY
+    metric = STEP3B_MEDIAN_VERIFICATION_METRIC
+
+    metric_source = episode_metrics_df[
+        episode_metrics_df["split"].eq(split)
+        & episode_metrics_df["policy_name"].eq(policy_name)
+        & np.isfinite(pd.to_numeric(episode_metrics_df[metric], errors="coerce"))
+    ].copy()
+    if metric_source.empty:
+        raise ValueError(
+            "Cannot write Step 3B median episode verification because no finite "
+            f"{metric} values exist for split={split}, policy_name={policy_name}."
+        )
+
+    metric_source[metric] = pd.to_numeric(metric_source[metric], errors="coerce")
+    median_metric = float(metric_source[metric].median())
+    metric_source["abs_distance_from_median"] = (
+        metric_source[metric] - median_metric
+    ).abs()
+    case_episode = metric_source.sort_values(
+        ["abs_distance_from_median", "episode_id"],
+        kind="mergesort",
+    ).iloc[0]
+    episode_id = str(case_episode["episode_id"])
+
+    case_tranches = tranche_records_df[
+        tranche_records_df["split"].eq(split)
+        & tranche_records_df["policy_name"].eq(policy_name)
+        & tranche_records_df["episode_id"].eq(episode_id)
+    ].sort_values("tranche_index", kind="mergesort")
+    case_rollouts = step_rollouts_df[
+        step_rollouts_df["split"].eq(split)
+        & step_rollouts_df["policy_name"].eq(policy_name)
+        & step_rollouts_df["episode_id"].eq(episode_id)
+    ].copy()
+    if case_tranches.empty or case_rollouts.empty:
+        raise ValueError(
+            "Cannot write Step 3B median episode verification because selected "
+            f"case data is missing: split={split}, policy_name={policy_name}, "
+            f"episode_id={episode_id}."
+        )
+
+    case_rollouts["date"] = pd.to_datetime(case_rollouts["date"], errors="coerce")
+    tax_check_rows: list[dict[str, Any]] = []
+    terminal_mask = coerce_bool_series(case_rollouts["terminal_liquidation_executed"])
+    for tranche in case_tranches.to_dict("records"):
+        tranche_type = str(tranche["tranche_type"])
+        weight = finite_float(tranche["weight"])
+        sale_date = pd.Timestamp(tranche["sale_date"])
+        if tranche_type == "terminal_liquidation":
+            terminal_rows = case_rollouts.loc[terminal_mask]
+            if terminal_rows.empty:
+                raise ValueError(
+                    "Cannot write Step 3B median episode verification because the "
+                    f"terminal liquidation row is missing for episode_id={episode_id}."
+                )
+            rollout_row = terminal_rows.iloc[-1]
+            pre_tax_increment = finite_float(
+                rollout_row.get("terminal_liquidation_pre_tax_increment", np.nan)
+            )
+            tax_paid = finite_float(
+                rollout_row.get("terminal_liquidation_tax_paid", np.nan)
+            )
+            after_tax_increment = finite_float(
+                rollout_row.get("terminal_liquidation_after_tax_increment", np.nan)
+            )
+            tax_rate = finite_float(
+                rollout_row.get("terminal_liquidation_tax_rate", np.nan)
+            )
+        else:
+            sale_rows = case_rollouts.loc[
+                case_rollouts["date"].eq(sale_date)
+                & pd.to_numeric(
+                    case_rollouts["action_fraction_executed"],
+                    errors="coerce",
+                ).gt(0.0)
+            ]
+            if sale_rows.empty:
+                raise ValueError(
+                    "Cannot write Step 3B median episode verification because no "
+                    f"discretionary sale row matches sale_date={sale_date.date()}."
+                )
+            rollout_row = sale_rows.iloc[0]
+            pre_tax_increment = finite_float(
+                rollout_row.get("realized_pre_tax_increment", np.nan)
+            )
+            tax_paid = finite_float(rollout_row.get("tax_paid", np.nan))
+            after_tax_increment = finite_float(
+                rollout_row.get("realized_after_tax_increment", np.nan)
+            )
+            tax_rate = finite_float(rollout_row.get("applicable_tax_rate", np.nan))
+
+        pre_tax_return = pre_tax_increment / weight if weight > 0.0 else np.nan
+        after_tax_return_from_increment = (
+            after_tax_increment / weight if weight > 0.0 else np.nan
+        )
+        expected_after_tax_increment = np.nan
+        if np.isfinite(pre_tax_increment) and np.isfinite(tax_rate):
+            expected_after_tax_increment = float(
+                pre_tax_increment - max(pre_tax_increment, 0.0) * tax_rate
+            )
+        tax_check_rows.append(
+            {
+                **tranche,
+                "pre_tax_increment": pre_tax_increment,
+                "tax_rate": tax_rate,
+                "tax_paid": tax_paid,
+                "expected_after_tax_increment": expected_after_tax_increment,
+                "after_tax_increment": after_tax_increment,
+                "pre_tax_return": pre_tax_return,
+                "after_tax_return_from_increment": after_tax_return_from_increment,
+            }
+        )
+
+    terminal_day = int(case_episode["terminal_trading_day"])
+    post_tax_terminal_wealth = eaat_terminal_wealth_from_returns(
+        tax_check_rows,
+        return_key="after_tax_return",
+    )
+    post_tax_annualized_return = annualized_return_from_wealth(
+        post_tax_terminal_wealth,
+        terminal_day,
+    )
+    eaat_volatility = finite_float(case_episode["EAAT_annualized_volatility"])
+    eaat_daily_std = eaat_volatility / SHARPE_ANNUALIZATION_FACTOR
+    post_tax_eaat_sharpe = sharpe_from_return_and_volatility(
+        post_tax_annualized_return,
+        eaat_volatility,
+    )
+
+    post_tax_ta_return = ta_eaat_return_from_tranches(
+        tax_check_rows,
+        return_key="after_tax_return",
+    )
+    post_tax_ta_volatility = ta_eaat_volatility_from_tranches(tax_check_rows)
+    post_tax_ta_sharpe = sharpe_from_return_and_volatility(
+        post_tax_ta_return,
+        post_tax_ta_volatility,
+    )
+
+    pre_tax_terminal_wealth = eaat_terminal_wealth_from_returns(
+        tax_check_rows,
+        return_key="pre_tax_return",
+    )
+    pre_tax_annualized_return = annualized_return_from_wealth(
+        pre_tax_terminal_wealth,
+        terminal_day,
+    )
+    pre_tax_eaat_sharpe = sharpe_from_return_and_volatility(
+        pre_tax_annualized_return,
+        eaat_volatility,
+    )
+    pre_tax_ta_return = ta_eaat_return_from_tranches(
+        tax_check_rows,
+        return_key="pre_tax_return",
+    )
+    pre_tax_ta_sharpe = sharpe_from_return_and_volatility(
+        pre_tax_ta_return,
+        post_tax_ta_volatility,
+    )
+
+    checks = {
+        "selected_episode_is_policy_median_EAAT_Sharpe": values_close(
+            finite_float(case_episode[metric]),
+            median_metric,
+        ),
+        "tax_formula_matches_after_tax_increment": all(
+            values_close(
+                row["expected_after_tax_increment"],
+                row["after_tax_increment"],
+            )
+            for row in tax_check_rows
+        ),
+        "after_tax_return_matches_tranche_file": all(
+            values_close(
+                row["after_tax_return_from_increment"],
+                row["after_tax_return"],
+            )
+            for row in tax_check_rows
+        ),
+        "post_tax_EAAT_terminal_wealth_matches_csv": values_close(
+            post_tax_terminal_wealth,
+            finite_float(case_episode["EAAT_terminal_after_tax_wealth"]),
+        ),
+        "post_tax_EAAT_annualized_return_matches_csv": values_close(
+            post_tax_annualized_return,
+            finite_float(case_episode["EAAT_annualized_after_tax_return"]),
+        ),
+        "post_tax_EAAT_Sharpe_matches_csv": values_close(
+            post_tax_eaat_sharpe,
+            finite_float(case_episode["EAAT_Sharpe"]),
+        ),
+        "post_tax_TA_EAAT_annualized_return_matches_csv": values_close(
+            post_tax_ta_return,
+            finite_float(case_episode["TA_EAAT_annualized_after_tax_return"]),
+        ),
+        "post_tax_TA_EAAT_Sharpe_matches_csv": values_close(
+            post_tax_ta_sharpe,
+            finite_float(case_episode["TA_EAAT_Sharpe"]),
+        ),
+    }
+    if not all(checks.values()):
+        failed = [key for key, passed in checks.items() if not passed]
+        raise ValueError(
+            "Step 3B median episode verification failed: " + ", ".join(failed)
+        )
+
+    tax_table_lines = [
+        (
+            "| tranche | type | weight | pre-tax increment | tax rate | tax paid | "
+            "after-tax increment | after-tax return used |"
+        ),
+        "|---:|---|---:|---:|---:|---:|---:|---:|",
+    ]
+    for row in tax_check_rows:
+        tax_table_lines.append(
+            "| "
+            + " | ".join(
+                [
+                    format_verification_value(row["tranche_index"]),
+                    str(row["tranche_type"]),
+                    format_verification_value(row["weight"]),
+                    format_verification_value(row["pre_tax_increment"]),
+                    format_verification_value(row["tax_rate"]),
+                    format_verification_value(row["tax_paid"]),
+                    format_verification_value(row["after_tax_increment"]),
+                    format_verification_value(row["after_tax_return"]),
+                ]
+            )
+            + " |"
+        )
+
+    check_lines = [
+        "| Check | Result |",
+        "|---|---:|",
+        *[
+            f"| {field} | {'PASS' if passed else 'FAIL'} |"
+            for field, passed in checks.items()
+        ],
+    ]
+
+    first_row = tax_check_rows[0]
+    single_tranche = len(tax_check_rows) == 1
+    post_tax_terminal_formula = (
+        f"{format_verification_value(first_row['weight'])} * "
+        f"(1 + {format_verification_value(first_row['after_tax_return'])}) * "
+        f"(1 + daily_rf) ** {format_verification_value(first_row['cash_compound_days_to_terminal'])}"
+        if single_tranche
+        else "sum(weight_i * (1 + after_tax_return_i) * (1 + daily_rf) ** cash_days_i)"
+    )
+    pre_tax_terminal_formula = (
+        f"{format_verification_value(first_row['weight'])} * "
+        f"(1 + {format_verification_value(first_row['pre_tax_return'])}) * "
+        f"(1 + daily_rf) ** {format_verification_value(first_row['cash_compound_days_to_terminal'])}"
+        if single_tranche
+        else "sum(weight_i * (1 + pre_tax_return_i) * (1 + daily_rf) ** cash_days_i)"
+    )
+    sale_day_text = (
+        format_verification_value(first_row["sale_trading_day"])
+        if single_tranche
+        else "sale_day_i"
+    )
+
+    lines = [
+        "# Step 3B Median Episode EAAT Verification",
+        "",
+        (
+            f"Selected case: `{split} / {policy_name} / {episode_id}`. "
+            f"It is the episode closest to the median `{metric}` for this split-policy "
+            f"pair: median `{format_verification_value(median_metric)}`, selected "
+            f"`{format_verification_value(case_episode[metric])}`."
+        ),
+        "",
+        (
+            "Only the after-tax side is used by the Step 3B EAAT and TA-EAAT "
+            "metrics. The pre-tax side below is included only as an audit check "
+            "of the tax transformation and as a counterfactual comparison."
+        ),
+        "",
+        "## Tranche Tax Check",
+        "",
+        *tax_table_lines,
+        "",
+        "Tax transformation:",
+        "",
+        "- `after_tax_increment = pre_tax_increment - max(pre_tax_increment, 0) * tax_rate`.",
+        "- `after_tax_return_used = after_tax_increment / tranche_weight`.",
+        "",
+        "## Post-Tax Calculation Used In Step 3B",
+        "",
+        f"- Terminal trading day: `{terminal_day}`.",
+        f"- Daily risk-free rate: `{format_verification_value(DAILY_RISK_FREE_RATE)}`.",
+        f"- EAAT terminal after-tax wealth: `{post_tax_terminal_formula}` = `{format_verification_value(post_tax_terminal_wealth)}`.",
+        f"- EAAT annualized after-tax return: `terminal_wealth ** (252 / {terminal_day}) - 1` = `{format_verification_value(post_tax_annualized_return)}`.",
+        f"- Daily stock-return sample std: `{format_verification_value(eaat_daily_std)}`.",
+        f"- EAAT annualized volatility: `daily_std * sqrt(252)` = `{format_verification_value(eaat_volatility)}`.",
+        f"- EAAT Sharpe: `(annualized_after_tax_return - 0.04) / annualized_volatility` = `{format_verification_value(post_tax_eaat_sharpe)}`.",
+        f"- TA-EAAT annualized after-tax return: `(1 + after_tax_return) ** (252 / {sale_day_text}) - 1` = `{format_verification_value(post_tax_ta_return)}`.",
+        f"- TA-EAAT Sharpe: `(TA_annualized_after_tax_return - 0.04) / TA_annualized_volatility` = `{format_verification_value(post_tax_ta_sharpe)}`.",
+        "",
+        "## Pre-Tax Counterfactual Check",
+        "",
+        f"- Pre-tax terminal wealth under the same sale timing: `{pre_tax_terminal_formula}` = `{format_verification_value(pre_tax_terminal_wealth)}`.",
+        f"- Pre-tax annualized return under the same sale timing: `pre_tax_terminal_wealth ** (252 / {terminal_day}) - 1` = `{format_verification_value(pre_tax_annualized_return)}`.",
+        f"- Pre-tax Sharpe counterfactual using the same exposure volatility: `(pre_tax_annualized_return - 0.04) / annualized_volatility` = `{format_verification_value(pre_tax_eaat_sharpe)}`.",
+        f"- Pre-tax TA-EAAT annualized return under the same sale timing: `(1 + pre_tax_return) ** (252 / {sale_day_text}) - 1` = `{format_verification_value(pre_tax_ta_return)}`.",
+        f"- Pre-tax TA-EAAT Sharpe counterfactual: `(pre_tax_TA_return - 0.04) / TA_annualized_volatility` = `{format_verification_value(pre_tax_ta_sharpe)}`.",
+        "",
+        "The difference between the pre-tax and post-tax values is the tax paid on the realized gain. The policy tables report the post-tax EAAT and TA-EAAT values.",
+        "",
+        "## Checks",
+        "",
+        *check_lines,
+        "",
+    ]
+    (output_dir / "step3b_median_episode_eaat_verification.md").write_text(
+        "\n".join(lines),
+        encoding="utf-8",
+    )
+
+
+def build_step3b_outputs(
+    config: dict[str, Any],
+    run_path: Path,
+    output_dir: Path,
+    policy_df: pd.DataFrame,
+) -> pd.DataFrame:
     step_rollouts_path = run_path / "baselines" / "baseline_step_rollouts.csv"
     if not step_rollouts_path.exists():
         raise FileNotFoundError(f"Missing baseline step rollouts: {step_rollouts_path}")
     step_rollouts_df = pd.read_csv(step_rollouts_path, low_memory=False)
-    metrics_df = build_risk_adjusted_path_metrics(
+    legacy_metrics_df = build_risk_adjusted_path_metrics(
         step_rollouts_df,
         policy_df,
         source_path=step_rollouts_path,
     )
-    metrics_df.to_csv(
+    legacy_metrics_df.to_csv(
         output_dir / "step3b_policy_risk_adjusted_path_metrics.csv",
         index=False,
     )
     write_markdown_table(
-        metrics_df,
+        legacy_metrics_df,
         output_dir / "step3b_policy_risk_adjusted_path_metrics.md",
     )
     write_step3b_notes(output_dir / "step3b_risk_adjusted_path_metrics_notes.txt")
-    return metrics_df
+
+    stock_paths_df, metadata_notes = load_episode_stock_paths_for_eaat(
+        config=config,
+        step_rollouts_df=step_rollouts_df,
+        policy_df=policy_df,
+        source_path=step_rollouts_path,
+    )
+    eaat_summary_df, episode_metrics_df, tranche_records_df = build_eaat_sharpe_metrics(
+        step_rollouts_df,
+        stock_paths_df,
+        policy_df,
+        source_path=step_rollouts_path,
+    )
+    eaat_summary_df.to_csv(
+        output_dir / "step3b_policy_eaat_sharpe_metrics.csv",
+        index=False,
+    )
+    write_markdown_table(
+        eaat_summary_df,
+        output_dir / "step3b_policy_eaat_sharpe_metrics.md",
+    )
+    episode_metrics_df.to_csv(
+        output_dir / "step3b_episode_eaat_sharpe_metrics.csv",
+        index=False,
+    )
+    tranche_records_df.to_csv(
+        output_dir / "step3b_episode_tranche_records.csv",
+        index=False,
+    )
+    write_step3b_eaat_notes(
+        output_dir / "step3b_eaat_sharpe_metrics_notes.txt",
+        metadata_notes=metadata_notes,
+    )
+    write_step3b_one_case_verification(
+        output_dir=output_dir,
+        config=config,
+        step_rollouts_df=step_rollouts_df,
+        episode_metrics_df=episode_metrics_df,
+        tranche_records_df=tranche_records_df,
+    )
+    write_step3b_median_episode_verification(
+        output_dir=output_dir,
+        step_rollouts_df=step_rollouts_df,
+        episode_metrics_df=episode_metrics_df,
+        tranche_records_df=tranche_records_df,
+    )
+    return eaat_summary_df
 
 
 def update_step3_compact_with_step3b(output_dir: Path, step3b_df: pd.DataFrame) -> None:
@@ -1820,7 +3573,11 @@ def update_step3_compact_with_step3b(output_dir: Path, step3b_df: pd.DataFrame) 
     compact_df = pd.read_csv(compact_csv)
     drop_columns = [
         column
-        for column in [*LEGACY_COMPACT_SHARPE_COLUMNS, *STEP3B_COMPACT_COLUMNS]
+        for column in [
+            *LEGACY_COMPACT_SHARPE_COLUMNS,
+            *LEGACY_STEP3B_COMPACT_COLUMNS,
+            *STEP3B_COMPACT_COLUMNS,
+        ]
         if column in compact_df.columns
     ]
     if drop_columns:
@@ -2629,22 +4386,31 @@ def write_phase_summary(
         f"{preferred_test_value > sell_immediate_test_value}",
         "preferred_dqn_beats_sell_half_then_hold_on_test: "
         f"{preferred_test_value > sell_half_test_value}",
-        "step3b_risk_adjusted_path_metrics_completed: True",
+        "step3b_eaat_sharpe_metrics_completed: True",
         f"step3b_rows_written: {len(step3b_df)}",
         f"step3b_annual_risk_free_rate: {ANNUAL_RISK_FREE_RATE}",
         f"step3b_daily_risk_free_rate: {DAILY_RISK_FREE_RATE}",
         f"step3b_cash_reinvestment_assumption: {CASH_REINVESTMENT_ASSUMPTION}",
-        "step3b_outputs: step3b_policy_risk_adjusted_path_metrics.csv; "
+        "step3b_outputs: step3b_policy_eaat_sharpe_metrics.csv; "
+        "step3b_policy_eaat_sharpe_metrics.md; "
+        "step3b_episode_eaat_sharpe_metrics.csv; "
+        "step3b_episode_tranche_records.csv; "
+        "step3b_eaat_sharpe_metrics_notes.txt; "
+        "step3b_one_case_eaat_verification.md; "
+        "step3b_median_episode_eaat_verification.md",
+        "step3b_legacy_path_diagnostics_retained: True",
+        "step3b_legacy_path_diagnostics_outputs: "
+        "step3b_policy_risk_adjusted_path_metrics.csv; "
         "step3b_policy_risk_adjusted_path_metrics.md; "
         "step3b_risk_adjusted_path_metrics_notes.txt",
-        "step3_compact_includes_step3b_median_path_sharpe: True",
+        "step3_compact_includes_step3b_median_eaat_sharpe: True",
         "step3c_conditional_hold_weak_analysis_completed: True",
         f"step3c_rows_written: {len(step3c_df)}",
         "step3c_outputs: step3c_conditional_hold_weak_analysis.csv; "
         "step3c_conditional_hold_weak_analysis.md; "
         "step3c_conditional_hold_weak_analysis_summary.txt",
         *step3d_lines,
-        "scope_note: This package implements quantitative analysis steps 1, 2, 3, Step 3B secondary path diagnostics, Step 3C subgroup diagnostics, and Step 3D tax-free counterfactual evaluation; steps 4 onward are not implemented here.",
+        "scope_note: This package implements quantitative analysis steps 1, 2, 3, Step 3B EAAT Sharpe diagnostics with retained legacy path diagnostics, Step 3C subgroup diagnostics, and Step 3D tax-free counterfactual evaluation; steps 4 onward are not implemented here.",
         "",
     ]
     (output_dir / "phase_1_3_summary.txt").write_text(
@@ -2716,7 +4482,7 @@ def main() -> None:
     required_policies = policy_df["policy_name"].tolist()
     ensure_baselines(config_path, run_path, required_policies)
     performance_df = write_step3_outputs(run_path, output_dir, policy_df)
-    step3b_df = build_step3b_outputs(run_path, output_dir, policy_df)
+    step3b_df = build_step3b_outputs(config, run_path, output_dir, policy_df)
     update_step3_compact_with_step3b(output_dir, step3b_df)
     step3c_df = build_step3c_conditional_hold_weak_analysis(
         run_path,

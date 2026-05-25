@@ -1,0 +1,23 @@
+Step 3B EAAT Sharpe metrics notes
+EAAT Sharpe uses terminal after-tax wealth and exposure-adjusted daily stock/cash volatility.
+TA-EAAT Sharpe uses sale-level tranches and matching holding-period volatility.
+Final after-tax value remains the primary economic metric.
+These Sharpe metrics are supplementary risk-adjusted diagnostics.
+The annual risk-free rate is 4%.
+Cash proceeds after sale are assumed to earn the daily risk-free rate.
+The daily risk-free rate is computed as (1 + 0.04) ** (1 / 252) - 1.
+EAAT terminal after-tax wealth is computed from sale tranches, not from raw after_tax_total_value path returns.
+EAAT volatility uses daily stock/cash policy returns with exposure measured at the start of each return interval.
+TA-EAAT annualizes each sale tranche from original purchase day to sale day and uses stock volatility over the same holding window.
+Only after-tax tranche returns enter EAAT and TA-EAAT; pre-tax values are audit-only checks and are not Step 3B metric columns.
+step3b_median_episode_eaat_verification.md shows the median preferred-policy test episode calculation for both the after-tax metric and the pre-tax counterfactual check.
+TA-EAAT can become extremely large when a positive after-tax tranche return is annualized over a very short holding window; see step3b_one_case_eaat_verification.md for a concrete audit case.
+annualization_factor: 252
+annual_risk_free_rate: 0.04
+daily_risk_free_rate: 0.0001556498627912628
+environment_episode_dataset: data/episodes/drl_episodes.parquet
+stock_path_source: data/features/engineered_universe.parquet
+horizon_used_counts: full_day0_to_terminal=3036
+horizon_used_note: full_day0_to_terminal means original simulated purchase date through the common terminal trading date. available_episode_rollout_window means the full day-0 path could not be recovered and the environment episode window was used.
+shorter_available_horizon_episode_examples: none
+Legacy Step 3B path diagnostics are retained separately in step3b_policy_risk_adjusted_path_metrics.csv.
