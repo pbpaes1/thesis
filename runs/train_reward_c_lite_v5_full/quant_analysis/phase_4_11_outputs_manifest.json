@@ -12,14 +12,68 @@
     "type": "md"
   },
   {
-    "description": "DQN decision rule mean final after-tax value for validation.",
+    "description": "Step 4 DQN decision-rule mean final after-tax value for validation.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_dqn_decision_rule_value_validation.png",
     "step": "4",
     "type": "png"
   },
   {
-    "description": "DQN decision rule mean final after-tax value for test.",
+    "description": "Step 4 first-sale margin versus after-tax value for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_margin_vs_after_tax_value_validation.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 median EAAT Sharpe by DQN decision rule for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_eaat_median_sharpe_by_policy_validation.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 median TA-EAAT Sharpe by DQN decision rule for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_ta_eaat_median_sharpe_by_policy_validation.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 DQN decision-rule mean final after-tax value for test.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_dqn_decision_rule_value_test.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 first-sale margin versus after-tax value for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_margin_vs_after_tax_value_test.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 median EAAT Sharpe by DQN decision rule for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_eaat_median_sharpe_by_policy_test.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 median TA-EAAT Sharpe by DQN decision rule for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_ta_eaat_median_sharpe_by_policy_test.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 first-sale margin versus short-term sold fraction for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_margin_vs_short_term_fraction_test.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 first-sale margin versus no-cut percentage for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_margin_vs_no_cut_pct_test.png",
+    "step": "4",
+    "type": "png"
+  },
+  {
+    "description": "Step 4 first-sale margin versus total tax paid for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4_margin_vs_total_tax_paid_test.png",
     "step": "4",
     "type": "png"
   },
@@ -184,54 +238,6 @@
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step7_days_to_first_sale_by_split.png",
     "step": "7",
     "type": "png"
-  },
-  {
-    "description": "Risk-adjusted episode Sharpe and reward-path Sharpe analysis.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4b_risk_adjusted_sharpe_analysis.csv",
-    "step": "4B",
-    "type": "csv"
-  },
-  {
-    "description": "Risk-adjusted episode Sharpe and reward-path Sharpe analysis.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4b_risk_adjusted_sharpe_analysis.md",
-    "step": "4B",
-    "type": "md"
-  },
-  {
-    "description": "Risk-adjusted Sharpe assumptions and caveats.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step4b_risk_adjusted_sharpe_notes.txt",
-    "step": "4B",
-    "type": "txt"
-  },
-  {
-    "description": "Episode Sharpe by policy for validation.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4b_episode_sharpe_by_policy_validation.png",
-    "step": "4B",
-    "type": "png"
-  },
-  {
-    "description": "Episode Sharpe by policy for test.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4b_episode_sharpe_by_policy_test.png",
-    "step": "4B",
-    "type": "png"
-  },
-  {
-    "description": "Test split episode return versus volatility by policy.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step4b_return_vs_volatility_test.png",
-    "step": "4B",
-    "type": "png"
-  },
-  {
-    "description": "Updated compact performance summary with Sharpe and Sortino columns.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step3_policy_performance_summary_compact.csv",
-    "step": "4B",
-    "type": "csv"
-  },
-  {
-    "description": "Updated compact performance summary with Sharpe and Sortino columns.",
-    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step3_policy_performance_summary_compact.md",
-    "step": "4B",
-    "type": "md"
   },
   {
     "description": "Paired preferred-policy dominance analysis against benchmark policies.",

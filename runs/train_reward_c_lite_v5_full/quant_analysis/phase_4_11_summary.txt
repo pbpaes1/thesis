@@ -1,19 +1,31 @@
 Quantitative Analysis Phase 4-11 Summary
 script_run: python scripts/build_quant_analysis_phase_4_11.py --config configs/train_reward_c_lite_v5.yaml
-source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv
+source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_policy_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_eaat_sharpe_metrics_notes.txt
 output_directory: runs/train_reward_c_lite_v5_full/quant_analysis
-number_of_tables_created: 24
-number_of_plots_created: 29
+number_of_tables_created: 20
+number_of_plots_created: 35
 preferred_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
 best_validation_policy_by_mean_final_after_tax_value: hold_to_terminal
 best_test_policy_by_mean_final_after_tax_value: hold_to_terminal
 preferred_policy_beats_hold_to_terminal_on_test: False
 preferred_policy_beats_sell_immediately_on_test: True
 preferred_policy_beats_sell_half_then_hold_on_test: True
-step4b_risk_adjusted_sharpe_completed: True
-step4b_scope: validation/test full policy universe; train/all preferred-policy descriptive diagnostics
-step4b_risk_free_rate: 0
-step4b_annualization_applied: False
+step4_final_decision_rule_block_completed: True
+step4_policy_progression: trained_dqn_greedy -> trained_dqn_thresholded_margin_0p020 -> first-sale-thresholded DQN sweep
+step4_first_sale_margin_sweep: 0.020, 0.030, 0.040, 0.050, 0.060, 0.070, 0.080, 0.090
+step4_uses_final_annualized_eaat_ta_eaat_sharpe_diagnostics: True
+step4_sharpe_scope: final EAAT / TA-EAAT Sharpe metrics only; no legacy Sharpe diagnostics, reward-path Sharpe, step-return proxy Sharpe, or Step 4B metrics are included.
+step4_annual_risk_free_rate: 0.04
+step4_daily_risk_free_rate: 0.0001556498627912628
+step4_annualization_factor: 252
+step4_final_after_tax_value_primary_metric: True
+step4_eaat_ta_eaat_secondary_risk_adjusted_diagnostics: True
+step4_ta_eaat_summary_statistic: median; mean and standard deviation are omitted because TA-EAAT is sensitive to outliers from near-zero tranche volatility denominators.
+step4_margin_chart_moved_into_step4: True
+step4_legacy_step4b_metrics_included: False
+step4_legacy_step4b_outputs_regenerated: False
+step4_preferred_policy_remains: trained_dqn_first_sale_margin_0p070_normal_0p020
+step4_scope_note: hold_to_terminal may remain the best absolute final-value benchmark, but Step 4 is about DQN decision-rule improvement.
 train_all_behavior_diagnostics_completed: True; train_rollout_generated_this_run=False
 skipped_optional_analyses: sector grouping skipped because baseline artifacts do not include a sector column; train/all benchmark excess values left as NA except validation/test, avoiding extra benchmark reruns
 step_12_writing_implemented: False

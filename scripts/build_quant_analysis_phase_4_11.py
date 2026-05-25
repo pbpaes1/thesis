@@ -44,6 +44,23 @@ VALIDATION_TEST_SPLITS = ["validation", "test"]
 DIAGNOSTIC_SPLITS = ["train", "validation", "test", "all"]
 RANDOM_SEED = 42
 BOOTSTRAP_ITERATIONS = 2000
+ANNUAL_RISK_FREE_RATE = 0.04
+ANNUALIZATION_FACTOR = 252
+DAILY_RISK_FREE_RATE = (1.0 + ANNUAL_RISK_FREE_RATE) ** (
+    1.0 / float(ANNUALIZATION_FACTOR)
+) - 1.0
+
+STEP4_FIRST_SALE_MARGINS = [0.02, 0.03, 0.04, 0.05, 0.06, 0.07, 0.08, 0.09]
+STEP4_FIRST_SALE_MARGIN_POLICIES = [
+    "trained_dqn_first_sale_margin_0p020_normal_0p020",
+    "trained_dqn_first_sale_margin_0p030_normal_0p020",
+    "trained_dqn_first_sale_margin_0p040_normal_0p020",
+    "trained_dqn_first_sale_margin_0p050_normal_0p020",
+    "trained_dqn_first_sale_margin_0p060_normal_0p020",
+    PREFERRED_POLICY,
+    "trained_dqn_first_sale_margin_0p080_normal_0p020",
+    "trained_dqn_first_sale_margin_0p090_normal_0p020",
+]
 
 POLICY_UNIVERSE = [
     "hold_to_terminal",
@@ -61,17 +78,9 @@ POLICY_UNIVERSE = [
 DQN_DECISION_POLICIES = [
     "trained_dqn_greedy",
     "trained_dqn_thresholded_margin_0p020",
-    "trained_dqn_first_sale_margin_0p060_normal_0p020",
-    PREFERRED_POLICY,
-    "trained_dqn_first_sale_margin_0p080_normal_0p020",
-    "trained_dqn_first_sale_margin_0p090_normal_0p020",
+    *STEP4_FIRST_SALE_MARGIN_POLICIES,
 ]
-FIRST_SALE_MARGIN_POLICIES = [
-    "trained_dqn_first_sale_margin_0p060_normal_0p020",
-    PREFERRED_POLICY,
-    "trained_dqn_first_sale_margin_0p080_normal_0p020",
-    "trained_dqn_first_sale_margin_0p090_normal_0p020",
-]
+FIRST_SALE_MARGIN_POLICIES = STEP4_FIRST_SALE_MARGIN_POLICIES
 BENCHMARK_POLICIES = [
     "hold_to_terminal",
     "sell_immediately",
@@ -79,6 +88,7 @@ BENCHMARK_POLICIES = [
     "sell_quarters_over_time",
     "random_policy",
 ]
+STEP4_STEP3B_POLICIES = [*BENCHMARK_POLICIES, *DQN_DECISION_POLICIES]
 STEP10_COMPARISON_POLICIES = [
     "hold_to_terminal",
     "sell_immediately",
@@ -98,6 +108,101 @@ ACTION_LABELS = {
     1.0: "sell_100",
 }
 ACTION_ORDER = ["hold", "sell_25", "sell_50", "sell_75", "sell_100"]
+
+STEP4_BASE_COLUMNS = [
+    "split",
+    "policy_name",
+    "first_sale_margin",
+    "num_episodes",
+    "mean_final_after_tax_total_value",
+    "median_final_after_tax_total_value",
+    "std_final_after_tax_total_value",
+    "mean_excess_value_vs_trained_dqn_greedy",
+    "mean_excess_value_vs_trained_dqn_thresholded_margin_0p020",
+    "mean_total_tax_paid",
+    "mean_effective_tax_rate",
+    "mean_pct_position_sold_short_term",
+    "mean_pct_position_sold_long_term",
+    "terminal_liquidation_frequency",
+    "no_cut_episode_pct",
+    "discretionary_sale_episode_pct",
+    "average_days_to_first_sale",
+    "median_days_to_first_sale",
+    "pct_episodes_with_first_sale_before_tax_transition",
+    "mean_num_discretionary_sales",
+]
+STEP4_EAAT_SHARPE_COLUMNS = [
+    "num_valid_EAAT_Sharpe_episodes",
+    "mean_EAAT_Sharpe",
+    "median_EAAT_Sharpe",
+    "pct_positive_EAAT_Sharpe",
+    "mean_EAAT_annualized_after_tax_return",
+    "median_EAAT_annualized_after_tax_return",
+    "mean_EAAT_annualized_volatility",
+    "median_EAAT_annualized_volatility",
+    "num_valid_TA_EAAT_Sharpe_episodes",
+    "median_TA_EAAT_Sharpe",
+    "pct_positive_TA_EAAT_Sharpe",
+    "median_TA_EAAT_annualized_after_tax_return",
+    "median_TA_EAAT_annualized_volatility",
+]
+STEP4_SOURCE_REQUIRED_SHARPE_COLUMNS = [
+    "split",
+    "policy_name",
+    "num_episodes",
+    *STEP4_EAAT_SHARPE_COLUMNS,
+    "annual_risk_free_rate",
+    "daily_risk_free_rate",
+    "annualization_factor",
+]
+STEP4_REQUIRED_SHARPE_COLUMNS = [
+    "split",
+    "policy_name",
+    "num_episodes",
+    *STEP4_EAAT_SHARPE_COLUMNS,
+]
+STEP4_LEGACY_FORBIDDEN_COLUMNS = {
+    "sharpe_episode",
+    "sortino_episode",
+    "episode_step_sharpe",
+    "pooled_step_sharpe",
+    "step_return_proxy",
+    "mean_TA_EAAT_Sharpe",
+    "std_TA_EAAT_Sharpe",
+    "mean_episode_step_sharpe",
+    "median_episode_step_sharpe",
+    "std_episode_step_sharpe",
+    "pct_positive_episode_step_sharpe",
+    "coefficient_of_variation",
+    "step_return_proxy_source",
+    "mean_step_return_proxy_all_steps",
+    "std_step_return_proxy_all_steps",
+}
+STEP4_LEGACY_FORBIDDEN_COLUMN_TOKENS = [
+    "reward_path",
+    "reward-path",
+    "step_return_proxy",
+    "reward_a_proxy",
+    "reward_A_proxy",
+    "full_horizon_annualized_sharpe",
+    "invested_period_annualized_sharpe",
+]
+STEP4_EAAT_NOTE_REQUIRED_PHRASES = [
+    "EAAT Sharpe uses terminal after-tax wealth",
+    "TA-EAAT Sharpe uses sale-level tranches",
+    "The annual risk-free rate is 4%",
+    "The daily risk-free rate is computed as (1 + 0.04) ** (1 / 252) - 1",
+]
+STEP4_EAAT_NOTE_FORBIDDEN_PHRASES = [
+    "risk-free rate = 0",
+    "risk-free rate: 0",
+    "no annualization",
+    "step-return proxy",
+    "reward-path sharpe",
+    "reward_a proxy",
+    "legacy diagnostic",
+    "legacy risk-adjusted",
+]
 
 
 class OutputRegistry:
@@ -518,11 +623,380 @@ def plot_line_margin(
     save_plot(path, registry, step, description)
 
 
+def step4_first_sale_margin(policy_name: str) -> float:
+    if policy_name == "trained_dqn_thresholded_margin_0p020":
+        return 0.020
+    if policy_name.startswith("trained_dqn_first_sale_margin_"):
+        return extract_first_sale_margin(policy_name)
+    return np.nan
+
+
+def validate_no_legacy_step4_metrics(columns: list[str]) -> None:
+    lower_tokens = [token.lower() for token in STEP4_LEGACY_FORBIDDEN_COLUMN_TOKENS]
+    bad_columns = []
+    for column in columns:
+        lower_column = column.lower()
+        if column in STEP4_LEGACY_FORBIDDEN_COLUMNS:
+            bad_columns.append(column)
+            continue
+        if any(token in lower_column for token in lower_tokens):
+            bad_columns.append(column)
+    if bad_columns:
+        raise ValueError(
+            "Step 4 output attempted to include legacy Step 4B or path Sharpe "
+            "metric column(s): " + ", ".join(sorted(set(bad_columns)))
+        )
+
+
+def missing_split_policy_rows(
+    df: pd.DataFrame,
+    *,
+    policies: list[str],
+    splits: list[str],
+) -> list[str]:
+    missing: list[str] = []
+    for split in splits:
+        split_policies = set(
+            df.loc[df["split"].eq(split), "policy_name"].astype(str).unique()
+        )
+        for policy in policies:
+            if policy not in split_policies:
+                missing.append(f"{split}:{policy}")
+    return missing
+
+
+def load_phase_1_3_module() -> Any:
+    module_path = PROJECT_ROOT / "scripts" / "build_quant_analysis_phase_1_3.py"
+    spec = importlib.util.spec_from_file_location(
+        "build_quant_analysis_phase_1_3_for_step4",
+        module_path,
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot import Step 3B helpers from {module_path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def step4_step3b_policy_df() -> pd.DataFrame:
+    rows = []
+    for order, policy in enumerate(STEP4_STEP3B_POLICIES):
+        if policy in BENCHMARK_POLICIES:
+            family = "benchmark"
+            role = "benchmark"
+        elif policy == "trained_dqn_greedy":
+            family = "raw_dqn"
+            role = "raw DQN"
+        elif policy == "trained_dqn_thresholded_margin_0p020":
+            family = "thresholded_dqn"
+            role = "thresholded DQN"
+        else:
+            family = "first_sale_thresholded_dqn"
+            role = "preferred DQN" if policy == PREFERRED_POLICY else "sensitivity DQN"
+        rows.append(
+            {
+                "policy_order": order,
+                "policy_name": policy,
+                "policy_family": family,
+                "role": role,
+                "included_in_main_table": True,
+                "notes": "Step 4 corrected EAAT/TA-EAAT Sharpe coverage.",
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def validate_step3b_eaat_notes(notes_path: Path) -> None:
+    if not notes_path.exists():
+        raise FileNotFoundError(
+            "Missing corrected Step 3B EAAT Sharpe notes file: "
+            f"{relative_project_path(notes_path)}"
+        )
+    text = notes_path.read_text(encoding="utf-8")
+    lower_text = text.lower()
+    missing_phrases = [
+        phrase for phrase in STEP4_EAAT_NOTE_REQUIRED_PHRASES if phrase.lower() not in lower_text
+    ]
+    if missing_phrases:
+        raise ValueError(
+            "Step 4 requires corrected final Step 3B EAAT/TA-EAAT notes. "
+            "Missing phrase(s): " + "; ".join(missing_phrases)
+        )
+    forbidden_phrases = [
+        phrase
+        for phrase in STEP4_EAAT_NOTE_FORBIDDEN_PHRASES
+        if phrase.lower() in lower_text
+    ]
+    if forbidden_phrases:
+        raise ValueError(
+            "Step 4 refused a Sharpe notes file with legacy assumptions: "
+            + "; ".join(forbidden_phrases)
+        )
+
+
+def validate_step3b_eaat_assumptions(df: pd.DataFrame, *, source: Path) -> None:
+    require_columns(
+        df,
+        STEP4_SOURCE_REQUIRED_SHARPE_COLUMNS,
+        source=source,
+        step="Step 4 corrected Step 3B Sharpe merge",
+    )
+    annual_rf = pd.to_numeric(df["annual_risk_free_rate"], errors="coerce")
+    daily_rf = pd.to_numeric(df["daily_risk_free_rate"], errors="coerce")
+    annualization = pd.to_numeric(df["annualization_factor"], errors="coerce")
+    if annual_rf.isna().any() or not np.allclose(annual_rf, ANNUAL_RISK_FREE_RATE):
+        raise ValueError(
+            "Corrected Step 3B EAAT Sharpe rows must use annual_risk_free_rate=0.04 "
+            f"in {relative_project_path(source)}."
+        )
+    if daily_rf.isna().any() or not np.allclose(daily_rf, DAILY_RISK_FREE_RATE):
+        raise ValueError(
+            "Corrected Step 3B EAAT Sharpe rows must use daily_risk_free_rate="
+            "(1 + 0.04) ** (1 / 252) - 1 in "
+            f"{relative_project_path(source)}."
+        )
+    if annualization.isna().any() or not np.allclose(
+        annualization,
+        ANNUALIZATION_FACTOR,
+    ):
+        raise ValueError(
+            "Corrected Step 3B EAAT Sharpe rows must use annualization_factor=252 "
+            f"in {relative_project_path(source)}."
+        )
+
+
+def regenerate_step3b_eaat_outputs_for_step4(
+    *,
+    config: dict[str, Any],
+    run_path: Path,
+    output_dir: Path,
+) -> pd.DataFrame:
+    phase_1_3 = load_phase_1_3_module()
+    step_rollouts_path = run_path / "baselines" / "baseline_step_rollouts.csv"
+    if not step_rollouts_path.exists():
+        raise FileNotFoundError(
+            f"Missing baseline step rollouts: {relative_project_path(step_rollouts_path)}"
+        )
+    step_rollouts_df = pd.read_csv(step_rollouts_path, low_memory=False)
+    policy_df = step4_step3b_policy_df()
+    stock_paths_df, metadata_notes = phase_1_3.load_episode_stock_paths_for_eaat(
+        config=config,
+        step_rollouts_df=step_rollouts_df,
+        policy_df=policy_df,
+        source_path=step_rollouts_path,
+    )
+    eaat_summary_df, episode_metrics_df, tranche_records_df = (
+        phase_1_3.build_eaat_sharpe_metrics(
+            step_rollouts_df,
+            stock_paths_df,
+            policy_df,
+            source_path=step_rollouts_path,
+        )
+    )
+    eaat_summary_df.to_csv(
+        output_dir / "step3b_policy_eaat_sharpe_metrics.csv",
+        index=False,
+    )
+    write_markdown_table(
+        eaat_summary_df,
+        output_dir / "step3b_policy_eaat_sharpe_metrics.md",
+    )
+    episode_metrics_df.to_csv(
+        output_dir / "step3b_episode_eaat_sharpe_metrics.csv",
+        index=False,
+    )
+    tranche_records_df.to_csv(
+        output_dir / "step3b_episode_tranche_records.csv",
+        index=False,
+    )
+    phase_1_3.write_step3b_eaat_notes(
+        output_dir / "step3b_eaat_sharpe_metrics_notes.txt",
+        metadata_notes=metadata_notes,
+    )
+    phase_1_3.write_step3b_one_case_verification(
+        output_dir=output_dir,
+        config=config,
+        step_rollouts_df=step_rollouts_df,
+        episode_metrics_df=episode_metrics_df,
+        tranche_records_df=tranche_records_df,
+    )
+    phase_1_3.write_step3b_median_episode_verification(
+        output_dir=output_dir,
+        step_rollouts_df=step_rollouts_df,
+        episode_metrics_df=episode_metrics_df,
+        tranche_records_df=tranche_records_df,
+    )
+    return eaat_summary_df
+
+
+def load_step3b_eaat_sharpe_metrics(
+    *,
+    config: dict[str, Any],
+    run_path: Path,
+    output_dir: Path,
+) -> pd.DataFrame:
+    csv_path = output_dir / "step3b_policy_eaat_sharpe_metrics.csv"
+    notes_path = output_dir / "step3b_eaat_sharpe_metrics_notes.txt"
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            "Missing corrected Step 3B EAAT Sharpe file: "
+            f"{relative_project_path(csv_path)}"
+        )
+    validate_step3b_eaat_notes(notes_path)
+    df = pd.read_csv(csv_path)
+    validate_step3b_eaat_assumptions(df, source=csv_path)
+    missing = missing_split_policy_rows(
+        df,
+        policies=DQN_DECISION_POLICIES,
+        splits=VALIDATION_TEST_SPLITS,
+    )
+    if missing:
+        df = regenerate_step3b_eaat_outputs_for_step4(
+            config=config,
+            run_path=run_path,
+            output_dir=output_dir,
+        )
+        validate_step3b_eaat_notes(notes_path)
+        validate_step3b_eaat_assumptions(df, source=csv_path)
+        missing = missing_split_policy_rows(
+            df,
+            policies=DQN_DECISION_POLICIES,
+            splits=VALIDATION_TEST_SPLITS,
+        )
+        if missing:
+            raise ValueError(
+                "Corrected Step 3B EAAT Sharpe output is missing required Step 4 "
+                "DQN split/policy rows after regeneration: " + ", ".join(missing)
+            )
+    return df
+
+
+def validate_step4_margin_sweep(df: pd.DataFrame, *, split: str) -> None:
+    split_margins = sorted(
+        round(float(value), 2)
+        for value in df.loc[df["split"].eq(split), "first_sale_margin"].dropna().unique()
+    )
+    expected = [round(value, 2) for value in STEP4_FIRST_SALE_MARGINS]
+    if split_margins != expected:
+        raise ValueError(
+            f"Step 4 {split} margin chart data must include exactly the "
+            f"0.02-0.09 first-sale sweep. Got {split_margins}; expected {expected}."
+        )
+
+
+def plot_step4_margin_vs_after_tax_value(
+    df: pd.DataFrame,
+    split: str,
+    path: Path,
+    registry: OutputRegistry,
+) -> None:
+    split_df = df[df["split"].eq(split)].copy()
+    margin_df = split_df[
+        split_df["policy_name"].isin(STEP4_FIRST_SALE_MARGIN_POLICIES)
+    ].sort_values("first_sale_margin")
+    validate_step4_margin_sweep(margin_df, split=split)
+    reference_values = split_df.set_index("policy_name")[
+        "mean_final_after_tax_total_value"
+    ]
+    for policy in ["trained_dqn_greedy", "trained_dqn_thresholded_margin_0p020"]:
+        if policy not in reference_values.index:
+            raise ValueError(f"Missing Step 4 chart reference policy: {split}:{policy}")
+
+    plt.figure(figsize=(8, 5))
+    plt.plot(
+        margin_df["first_sale_margin"],
+        margin_df["mean_final_after_tax_total_value"],
+        marker="o",
+        color="#2f6f4e",
+        label="first-sale-thresholded DQN",
+    )
+    plt.axhline(
+        reference_values["trained_dqn_greedy"],
+        color="#8f3d3d",
+        linestyle="--",
+        linewidth=1.5,
+        label="greedy DQN",
+    )
+    plt.axhline(
+        reference_values["trained_dqn_thresholded_margin_0p020"],
+        color="#3b6ea8",
+        linestyle=":",
+        linewidth=1.8,
+        label="normal thresholded DQN",
+    )
+    plt.xticks(STEP4_FIRST_SALE_MARGINS)
+    plt.xlabel("first-sale margin")
+    plt.ylabel("mean final after-tax total value")
+    plt.title(f"DQN decision-rule progression - {split}")
+    plt.grid(alpha=0.25)
+    plt.legend()
+    save_plot(
+        path,
+        registry,
+        "4",
+        f"Step 4 first-sale margin versus after-tax value for {split}.",
+    )
+
+
+def plot_step4_margin_metric(
+    df: pd.DataFrame,
+    *,
+    split: str,
+    y_column: str,
+    ylabel: str,
+    path: Path,
+    registry: OutputRegistry,
+    description: str,
+) -> None:
+    margin_df = df[
+        df["split"].eq(split) & df["policy_name"].isin(STEP4_FIRST_SALE_MARGIN_POLICIES)
+    ].sort_values("first_sale_margin")
+    validate_step4_margin_sweep(margin_df, split=split)
+    plt.figure(figsize=(7.2, 4.5))
+    plt.plot(
+        margin_df["first_sale_margin"],
+        margin_df[y_column],
+        marker="o",
+        color="#2f6f4e",
+    )
+    plt.xticks(STEP4_FIRST_SALE_MARGINS)
+    plt.xlabel("first-sale margin")
+    plt.ylabel(ylabel)
+    plt.title(f"{ylabel} by first-sale margin - {split}")
+    plt.grid(alpha=0.25)
+    save_plot(path, registry, "4", description)
+
+
+def plot_step4_sharpe_by_policy(
+    df: pd.DataFrame,
+    *,
+    split: str,
+    y_column: str,
+    title: str,
+    path: Path,
+    registry: OutputRegistry,
+    description: str,
+) -> None:
+    split_df = df[df["split"].eq(split)].copy()
+    if split_df.empty:
+        raise ValueError(f"Missing Step 4 Sharpe chart rows for split={split}")
+    plt.figure(figsize=(11, 4.8))
+    plt.bar(split_df["policy_name"].map(short_policy_label), split_df[y_column], color="#3b6ea8")
+    plt.xticks(rotation=35, ha="right")
+    plt.ylabel(y_column)
+    plt.title(title)
+    plt.grid(axis="y", alpha=0.25)
+    save_plot(path, registry, "4", description)
+
+
 def build_step4(
     episode_df: pd.DataFrame,
     output_dir: Path,
     plots_dir: Path,
     registry: OutputRegistry,
+    *,
+    config: dict[str, Any],
+    run_path: Path,
 ) -> pd.DataFrame:
     summary = aggregate_policy_metrics(
         episode_df,
@@ -542,25 +1016,53 @@ def build_step4(
         summary["mean_final_after_tax_total_value"]
         - summary["split"].map(pivot["trained_dqn_thresholded_margin_0p020"])
     )
-    columns = [
-        "split",
-        "policy_name",
-        "num_episodes",
-        "mean_final_after_tax_total_value",
-        "median_final_after_tax_total_value",
-        "std_final_after_tax_total_value",
-        "mean_excess_value_vs_trained_dqn_greedy",
-        "mean_excess_value_vs_trained_dqn_thresholded_margin_0p020",
-        "mean_total_tax_paid",
-        "mean_effective_tax_rate",
-        "mean_pct_position_sold_short_term",
-        "terminal_liquidation_frequency",
-        "no_cut_episode_pct",
-        "discretionary_sale_episode_pct",
-        "average_days_to_first_sale",
-        "pct_episodes_with_first_sale_before_tax_transition",
+    summary["first_sale_margin"] = summary["policy_name"].map(step4_first_sale_margin)
+
+    sharpe_df = load_step3b_eaat_sharpe_metrics(
+        config=config,
+        run_path=run_path,
+        output_dir=output_dir,
+    )
+    sharpe_counts = sharpe_df[["split", "policy_name", "num_episodes"]].copy()
+    count_check = summary[["split", "policy_name", "num_episodes"]].merge(
+        sharpe_counts,
+        on=["split", "policy_name"],
+        how="left",
+        suffixes=("_step4", "_step3b"),
+    )
+    mismatched_counts = count_check[
+        count_check["num_episodes_step3b"].isna()
+        | count_check["num_episodes_step4"].ne(count_check["num_episodes_step3b"])
     ]
-    out = summary[columns]
+    if not mismatched_counts.empty:
+        raise ValueError(
+            "Step 4 and corrected Step 3B EAAT Sharpe episode counts differ for: "
+            + ", ".join(
+                f"{row.split}:{row.policy_name}"
+                for row in mismatched_counts.itertuples(index=False)
+            )
+        )
+
+    sharpe_columns = ["split", "policy_name", *STEP4_EAAT_SHARPE_COLUMNS]
+    out = summary[STEP4_BASE_COLUMNS].merge(
+        sharpe_df[sharpe_columns],
+        on=["split", "policy_name"],
+        how="left",
+        validate="one_to_one",
+    )
+    missing_sharpe_rows = out[
+        out["num_valid_EAAT_Sharpe_episodes"].isna()
+        | out["num_valid_TA_EAAT_Sharpe_episodes"].isna()
+    ]
+    if not missing_sharpe_rows.empty:
+        raise ValueError(
+            "Step 4 table is missing corrected EAAT/TA-EAAT Sharpe values for: "
+            + ", ".join(
+                f"{row.split}:{row.policy_name}"
+                for row in missing_sharpe_rows.itertuples(index=False)
+            )
+        )
+    validate_no_legacy_step4_metrics(out.columns.tolist())
     save_table(
         out,
         output_dir / "step4_dqn_decision_rule_comparison.csv",
@@ -577,10 +1079,61 @@ def build_step4(
             plots_dir / f"step4_dqn_decision_rule_value_{split}.png",
             registry,
             "4",
-            f"DQN decision rule mean final after-tax value for {split}.",
+            f"Step 4 DQN decision-rule mean final after-tax value for {split}.",
             title=f"DQN decision rule value - {split}",
             ylabel="mean final after-tax total value",
         )
+        plot_step4_margin_vs_after_tax_value(
+            out,
+            split,
+            plots_dir / f"step4_margin_vs_after_tax_value_{split}.png",
+            registry,
+        )
+        plot_step4_sharpe_by_policy(
+            out,
+            split=split,
+            y_column="median_EAAT_Sharpe",
+            title=f"Median EAAT Sharpe by DQN decision rule - {split}",
+            path=plots_dir / f"step4_eaat_median_sharpe_by_policy_{split}.png",
+            registry=registry,
+            description=f"Step 4 median EAAT Sharpe by DQN decision rule for {split}.",
+        )
+        plot_step4_sharpe_by_policy(
+            out,
+            split=split,
+            y_column="median_TA_EAAT_Sharpe",
+            title=f"Median TA-EAAT Sharpe by DQN decision rule - {split}",
+            path=plots_dir / f"step4_ta_eaat_median_sharpe_by_policy_{split}.png",
+            registry=registry,
+            description=f"Step 4 median TA-EAAT Sharpe by DQN decision rule for {split}.",
+        )
+    plot_step4_margin_metric(
+        out,
+        split="test",
+        y_column="mean_pct_position_sold_short_term",
+        ylabel="mean short-term sold fraction",
+        path=plots_dir / "step4_margin_vs_short_term_fraction_test.png",
+        registry=registry,
+        description="Step 4 first-sale margin versus short-term sold fraction for test split.",
+    )
+    plot_step4_margin_metric(
+        out,
+        split="test",
+        y_column="no_cut_episode_pct",
+        ylabel="no-cut episode pct",
+        path=plots_dir / "step4_margin_vs_no_cut_pct_test.png",
+        registry=registry,
+        description="Step 4 first-sale margin versus no-cut percentage for test split.",
+    )
+    plot_step4_margin_metric(
+        out,
+        split="test",
+        y_column="mean_total_tax_paid",
+        ylabel="mean total tax paid",
+        path=plots_dir / "step4_margin_vs_total_tax_paid_test.png",
+        registry=registry,
+        description="Step 4 first-sale margin versus total tax paid for test split.",
+    )
     return out
 
 
@@ -593,341 +1146,16 @@ def short_policy_label(policy_name: str) -> str:
         "random_policy": "random",
         "trained_dqn_greedy": "dqn_greedy",
         "trained_dqn_thresholded_margin_0p020": "dqn_thr_020",
+        "trained_dqn_first_sale_margin_0p020_normal_0p020": "fsm_020",
+        "trained_dqn_first_sale_margin_0p030_normal_0p020": "fsm_030",
+        "trained_dqn_first_sale_margin_0p040_normal_0p020": "fsm_040",
+        "trained_dqn_first_sale_margin_0p050_normal_0p020": "fsm_050",
         "trained_dqn_first_sale_margin_0p060_normal_0p020": "fsm_060",
         PREFERRED_POLICY: "fsm_070",
         "trained_dqn_first_sale_margin_0p080_normal_0p020": "fsm_080",
         "trained_dqn_first_sale_margin_0p090_normal_0p020": "fsm_090",
     }
     return labels.get(policy_name, policy_name[:16])
-
-
-def add_episode_return(df: pd.DataFrame) -> pd.DataFrame:
-    out = df.copy()
-    if {
-        "episode_final_after_tax_total_value",
-        "episode_initial_after_tax_total_value",
-    }.issubset(out.columns):
-        out["episode_return"] = (
-            out["episode_final_after_tax_total_value"]
-            - out["episode_initial_after_tax_total_value"]
-        )
-        out["episode_return_source"] = (
-            "episode_final_after_tax_total_value - "
-            "episode_initial_after_tax_total_value"
-        )
-    elif "episode_total_reward_A" in out.columns:
-        out["episode_return"] = out["episode_total_reward_A"]
-        out["episode_return_source"] = "episode_total_reward_A"
-    else:
-        out["episode_return"] = out["episode_final_after_tax_total_value"]
-        out["episode_return_source"] = "episode_final_after_tax_total_value"
-    out["episode_return"] = pd.to_numeric(out["episode_return"], errors="coerce")
-    return out
-
-
-def safe_ratio(numerator: float, denominator: float) -> float:
-    if denominator is None or pd.isna(denominator) or float(denominator) == 0.0:
-        return np.nan
-    return float(numerator) / float(denominator)
-
-
-def episode_risk_rows(
-    episode_df: pd.DataFrame,
-    policies: list[str],
-    splits: list[str],
-    diagnostic_scope: str,
-    notes: list[str],
-) -> pd.DataFrame:
-    rows = []
-    metrics = add_episode_return(
-        episode_df[
-            episode_df["split"].isin(splits) & episode_df["policy_name"].isin(policies)
-        ]
-    )
-    for split in splits:
-        for policy in policies:
-            group = metrics[
-                metrics["split"].eq(split) & metrics["policy_name"].eq(policy)
-            ]
-            if group.empty:
-                continue
-            returns = group["episode_return"].dropna()
-            downside = returns[returns < 0]
-            mean_return = float(returns.mean())
-            std_return = float(returns.std(ddof=1))
-            downside_std = (
-                float(downside.std(ddof=1)) if len(downside) > 1 else np.nan
-            )
-            if len(downside) == 0:
-                notes.append(
-                    f"{split}/{policy}: Sortino set to NaN because there are no negative episode returns."
-                )
-            elif len(downside) == 1:
-                notes.append(
-                    f"{split}/{policy}: Sortino set to NaN because only one negative episode return is available."
-                )
-            if pd.isna(std_return) or std_return == 0.0:
-                notes.append(
-                    f"{split}/{policy}: episode Sharpe set to NaN because std_episode_return is zero or NaN."
-                )
-            rows.append(
-                {
-                    "split": split,
-                    "diagnostic_scope": diagnostic_scope,
-                    "policy_name": policy,
-                    "short_policy_label": short_policy_label(policy),
-                    "num_episodes": int(group["episode_id"].nunique()),
-                    "episode_return_source": str(
-                        group["episode_return_source"].iloc[0]
-                    ),
-                    "mean_episode_return": mean_return,
-                    "median_episode_return": float(returns.median()),
-                    "std_episode_return": std_return,
-                    "p05_episode_return": float(returns.quantile(0.05)),
-                    "p95_episode_return": float(returns.quantile(0.95)),
-                    "downside_std_episode_return": downside_std,
-                    "sharpe_episode": safe_ratio(mean_return, std_return),
-                    "sortino_episode": safe_ratio(mean_return, downside_std),
-                    "coefficient_of_variation": safe_ratio(
-                        std_return,
-                        abs(mean_return),
-                    ),
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def step_risk_rows(step_df: pd.DataFrame, policies: list[str], splits: list[str]) -> pd.DataFrame:
-    rows = []
-    steps = step_df[
-        step_df["split"].isin(splits) & step_df["policy_name"].isin(policies)
-    ].copy()
-    if "reward_A" in steps.columns:
-        steps["step_return_proxy"] = pd.to_numeric(steps["reward_A"], errors="coerce")
-        step_source = "reward_A"
-    elif {
-        "after_tax_total_value",
-        "previous_after_tax_total_value",
-    }.issubset(steps.columns):
-        steps["step_return_proxy"] = (
-            pd.to_numeric(steps["after_tax_total_value"], errors="coerce")
-            - pd.to_numeric(steps["previous_after_tax_total_value"], errors="coerce")
-        )
-        step_source = "after_tax_total_value - previous_after_tax_total_value"
-    else:
-        raise ValueError(
-            "Step 4B requires reward_A or after_tax_total_value and "
-            "previous_after_tax_total_value in step rollouts."
-        )
-    per_episode = (
-        steps.groupby(["split", "policy_name", "episode_id"], sort=False)
-        .agg(
-            mean_step_return_proxy=("step_return_proxy", "mean"),
-            std_step_return_proxy=("step_return_proxy", "std"),
-        )
-        .reset_index()
-    )
-    per_episode["episode_step_sharpe"] = per_episode.apply(
-        lambda row: safe_ratio(
-            row["mean_step_return_proxy"],
-            row["std_step_return_proxy"],
-        ),
-        axis=1,
-    )
-    for split in splits:
-        for policy in policies:
-            episode_group = per_episode[
-                per_episode["split"].eq(split) & per_episode["policy_name"].eq(policy)
-            ]
-            step_group = steps[
-                steps["split"].eq(split) & steps["policy_name"].eq(policy)
-            ]
-            if episode_group.empty or step_group.empty:
-                continue
-            mean_all = float(step_group["step_return_proxy"].mean())
-            std_all = float(step_group["step_return_proxy"].std(ddof=1))
-            rows.append(
-                {
-                    "split": split,
-                    "policy_name": policy,
-                    "step_return_proxy_source": step_source,
-                    "mean_episode_step_sharpe": float(
-                        episode_group["episode_step_sharpe"].mean()
-                    ),
-                    "median_episode_step_sharpe": float(
-                        episode_group["episode_step_sharpe"].median()
-                    ),
-                    "std_episode_step_sharpe": float(
-                        episode_group["episode_step_sharpe"].std(ddof=1)
-                    ),
-                    "pct_positive_episode_step_sharpe": float(
-                        episode_group["episode_step_sharpe"].gt(0).mean()
-                    ),
-                    "mean_step_return_proxy_all_steps": mean_all,
-                    "std_step_return_proxy_all_steps": std_all,
-                    "pooled_step_sharpe": safe_ratio(mean_all, std_all),
-                }
-            )
-    return pd.DataFrame(rows)
-
-
-def build_step4b(
-    baseline_episode: pd.DataFrame,
-    baseline_step: pd.DataFrame,
-    diag_episode: pd.DataFrame,
-    diag_step: pd.DataFrame,
-    output_dir: Path,
-    plots_dir: Path,
-    registry: OutputRegistry,
-) -> pd.DataFrame:
-    notes: list[str] = []
-    vt_episode_risk = episode_risk_rows(
-        baseline_episode,
-        POLICY_UNIVERSE,
-        VALIDATION_TEST_SPLITS,
-        "out_of_sample",
-        notes,
-    )
-    vt_step_risk = step_risk_rows(
-        baseline_step,
-        POLICY_UNIVERSE,
-        VALIDATION_TEST_SPLITS,
-    )
-    diag_episode_risk = episode_risk_rows(
-        diag_episode,
-        [PREFERRED_POLICY],
-        ["train", "all"],
-        "descriptive_diagnostic",
-        notes,
-    )
-    diag_step_risk = step_risk_rows(
-        diag_step,
-        [PREFERRED_POLICY],
-        ["train", "all"],
-    )
-    out = pd.concat([vt_episode_risk, diag_episode_risk], ignore_index=True)
-    step_risk = pd.concat([vt_step_risk, diag_step_risk], ignore_index=True)
-    out = out.merge(step_risk, on=["split", "policy_name"], how="left")
-    split_order = {"validation": 0, "test": 1, "train": 2, "all": 3}
-    policy_order = {policy: index for index, policy in enumerate(POLICY_UNIVERSE)}
-    out["_split_order"] = out["split"].map(split_order)
-    out["_policy_order"] = out["policy_name"].map(policy_order).fillna(999)
-    out = out.sort_values(["_split_order", "_policy_order"]).drop(
-        columns=["_split_order", "_policy_order"]
-    )
-    save_table(
-        out,
-        output_dir / "step4b_risk_adjusted_sharpe_analysis.csv",
-        output_dir / "step4b_risk_adjusted_sharpe_analysis.md",
-        registry,
-        "4B",
-        "Optional legacy risk-adjusted episode Sharpe and reward-path Sharpe diagnostic.",
-    )
-
-    notes_text = [
-        "Step 4B risk-adjusted Sharpe notes",
-        "Step 4B is retained as an optional diagnostic and does not inject Sharpe columns into the Step 3 compact performance table.",
-        "Risk-free rate assumption: 0. No risk-free series was used from the frozen artifacts.",
-        "No annualization is applied.",
-        "These are episode Sharpe, Sortino, step-return proxy Sharpe, and reward-path Sharpe metrics.",
-        "The after_tax_total_value and reward_A fields are thesis PnL/value-style metrics, not verified classical daily investable portfolio return series.",
-        "Final after-tax value remains the primary economic outcome; Sharpe, Sortino, and volatility are secondary risk-adjusted interpretation metrics.",
-        "Validation and test rows cover the full final policy universe. Train and all rows are preferred-policy descriptive diagnostics only.",
-        *notes,
-        "",
-    ]
-    save_text(
-        "\n".join(notes_text),
-        output_dir / "step4b_risk_adjusted_sharpe_notes.txt",
-        registry,
-        "4B",
-        "Risk-adjusted Sharpe assumptions and caveats.",
-    )
-
-    for split in VALIDATION_TEST_SPLITS:
-        plot_bar_by_split(
-            out,
-            split,
-            "sharpe_episode",
-            plots_dir / f"step4b_episode_sharpe_by_policy_{split}.png",
-            registry,
-            "4B",
-            f"Episode Sharpe by policy for {split}.",
-            title=f"Episode Sharpe by policy - {split}",
-            ylabel="episode Sharpe",
-        )
-
-    test_df = out[out["split"].eq("test")].copy()
-    plt.figure(figsize=(8, 5.2))
-    plt.scatter(
-        test_df["std_episode_return"],
-        test_df["mean_episode_return"],
-        color="#3b6ea8",
-    )
-    for _, row in test_df.iterrows():
-        plt.annotate(
-            row["short_policy_label"],
-            (row["std_episode_return"], row["mean_episode_return"]),
-            fontsize=8,
-            xytext=(4, 2),
-            textcoords="offset points",
-        )
-    plt.xlabel("std episode return")
-    plt.ylabel("mean episode return")
-    plt.title("Episode return vs volatility - test")
-    plt.grid(alpha=0.25)
-    save_plot(
-        plots_dir / "step4b_return_vs_volatility_test.png",
-        registry,
-        "4B",
-        "Test split episode return versus volatility by policy.",
-    )
-    update_compact_performance_summary(output_dir, out, registry)
-    return out
-
-
-def update_compact_performance_summary(
-    output_dir: Path,
-    _risk_df: pd.DataFrame,
-    registry: OutputRegistry,
-) -> None:
-    compact_csv = output_dir / "step3_policy_performance_summary_compact.csv"
-    compact_md = output_dir / "step3_policy_performance_summary_compact.md"
-    if not compact_csv.exists():
-        return
-    compact = pd.read_csv(compact_csv)
-    legacy_risk_columns = [
-        "mean_episode_return",
-        "std_episode_return",
-        "sharpe_episode",
-        "sortino_episode",
-        "mean_episode_step_sharpe",
-        "median_episode_step_sharpe",
-        "std_episode_step_sharpe",
-        "pct_positive_episode_step_sharpe",
-        "pooled_step_sharpe",
-        "step_return_proxy_source",
-        "mean_step_return_proxy_all_steps",
-        "std_step_return_proxy_all_steps",
-    ]
-    drop_columns = [column for column in legacy_risk_columns if column in compact.columns]
-    if not drop_columns:
-        return
-    compact = compact.drop(columns=drop_columns)
-    compact.to_csv(compact_csv, index=False)
-    write_markdown_table(compact, compact_md)
-    registry.add(
-        compact_csv,
-        "csv",
-        "4B",
-        "Removed legacy Step 4B Sharpe columns from compact performance summary.",
-    )
-    registry.add(
-        compact_md,
-        "md",
-        "4B",
-        "Removed legacy Step 4B Sharpe columns from compact performance summary.",
-    )
 
 
 def extract_first_sale_margin(policy_name: str) -> float:
@@ -1012,7 +1240,8 @@ def build_step5(
     notes = "\n".join(
         [
             "Step 5 interpretation notes",
-            "0.060 is more active but more exposed to premature selling.",
+            "The full 0.020-0.090 first-sale margin sweep is available for sensitivity checks.",
+            "Step 4 is the final DQN decision-rule and first-sale-margin analysis block.",
             "0.070 is the preferred balance.",
             "0.080 and 0.090 are useful sensitivity policies but increasingly close to hold-to-terminal behavior.",
             "0.090 should not be the main interpretation policy if no-cut episodes are too high.",
@@ -2238,12 +2467,16 @@ def write_final_summary_and_manifest(
     train_generated: bool,
     skipped_optional: list[str],
 ) -> None:
+    if any(row["step"] == "4B" for row in registry.rows):
+        raise RuntimeError(
+            "Legacy Step 4B outputs were registered during the final Step 4 workflow."
+        )
     created_tables = sum(1 for row in registry.rows if row["type"] in {"csv", "md"})
     created_plots = sum(1 for row in registry.rows if row["type"] == "png")
     lines = [
         "Quantitative Analysis Phase 4-11 Summary",
         "script_run: python scripts/build_quant_analysis_phase_4_11.py --config configs/train_reward_c_lite_v5.yaml",
-        "source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv",
+        "source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_policy_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_eaat_sharpe_metrics_notes.txt",
         f"output_directory: {relative_project_path(output_dir)}",
         f"number_of_tables_created: {created_tables}",
         f"number_of_plots_created: {created_plots}",
@@ -2253,11 +2486,22 @@ def write_final_summary_and_manifest(
         f"preferred_policy_beats_hold_to_terminal_on_test: {preferred_beats(episode_df, 'test', 'hold_to_terminal')}",
         f"preferred_policy_beats_sell_immediately_on_test: {preferred_beats(episode_df, 'test', 'sell_immediately')}",
         f"preferred_policy_beats_sell_half_then_hold_on_test: {preferred_beats(episode_df, 'test', 'sell_half_then_hold')}",
-        "step4b_risk_adjusted_sharpe_completed: True",
-        "step4b_scope: validation/test full policy universe; train/all preferred-policy descriptive diagnostics",
-        "step4b_risk_free_rate: 0",
-        "step4b_annualization_applied: False",
-        "step4b_compact_step3_injection: disabled; Step 3B owns path Sharpe-style diagnostics",
+        "step4_final_decision_rule_block_completed: True",
+        "step4_policy_progression: trained_dqn_greedy -> trained_dqn_thresholded_margin_0p020 -> first-sale-thresholded DQN sweep",
+        "step4_first_sale_margin_sweep: 0.020, 0.030, 0.040, 0.050, 0.060, 0.070, 0.080, 0.090",
+        "step4_uses_final_annualized_eaat_ta_eaat_sharpe_diagnostics: True",
+        "step4_sharpe_scope: final EAAT / TA-EAAT Sharpe metrics only; no legacy Sharpe diagnostics, reward-path Sharpe, step-return proxy Sharpe, or Step 4B metrics are included.",
+        f"step4_annual_risk_free_rate: {ANNUAL_RISK_FREE_RATE}",
+        f"step4_daily_risk_free_rate: {DAILY_RISK_FREE_RATE}",
+        f"step4_annualization_factor: {ANNUALIZATION_FACTOR}",
+        "step4_final_after_tax_value_primary_metric: True",
+        "step4_eaat_ta_eaat_secondary_risk_adjusted_diagnostics: True",
+        "step4_ta_eaat_summary_statistic: median; mean and standard deviation are omitted because TA-EAAT is sensitive to outliers from near-zero tranche volatility denominators.",
+        "step4_margin_chart_moved_into_step4: True",
+        "step4_legacy_step4b_metrics_included: False",
+        "step4_legacy_step4b_outputs_regenerated: False",
+        f"step4_preferred_policy_remains: {PREFERRED_POLICY}",
+        "step4_scope_note: hold_to_terminal may remain the best absolute final-value benchmark, but Step 4 is about DQN decision-rule improvement.",
         f"train_all_behavior_diagnostics_completed: True; train_rollout_generated_this_run={train_generated}",
         "skipped_optional_analyses: " + ("; ".join(skipped_optional) if skipped_optional else "none"),
         "step_12_writing_implemented: False",
@@ -2360,7 +2604,14 @@ def main() -> None:
         step="steps 7, 9, and 11",
     )
 
-    build_step4(baseline_episode, output_dir, plots_dir, registry)
+    build_step4(
+        baseline_episode,
+        output_dir,
+        plots_dir,
+        registry,
+        config=config,
+        run_path=run_path,
+    )
     build_step5(baseline_episode, output_dir, plots_dir, registry)
     build_step6(baseline_episode, output_dir, plots_dir, registry)
     diag_episode, diag_step, train_generated = build_step7(
@@ -2372,15 +2623,6 @@ def main() -> None:
         baseline_episode,
         baseline_step,
         baseline_summary,
-        registry,
-    )
-    build_step4b(
-        baseline_episode,
-        baseline_step,
-        diag_episode,
-        diag_step,
-        output_dir,
-        plots_dir,
         registry,
     )
     build_step8(baseline_episode, output_dir, plots_dir, registry)

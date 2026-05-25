@@ -480,6 +480,34 @@ Main Step 3B outputs:
 - `quant_analysis/step3b_one_case_eaat_verification.md`
 - `quant_analysis/step3b_eaat_sharpe_metrics_notes.txt`
 
+Phase 4-11 builds the final thesis-facing DQN decision-rule analysis for the
+frozen C-lite v5 run. Step 4 compares the progression from raw greedy DQN, to
+normal thresholded DQN with margin `0.020`, to first-sale-thresholded DQN
+margins `0.020` through `0.090` on validation and test splits.
+
+Step 4 uses final after-tax total value as the primary metric. Annualized EAAT
+and TA-EAAT Sharpe metrics from the corrected Step 3B files are included only as
+secondary diagnostics, with annual risk-free rate `4%` and daily risk-free rate
+`(1 + 0.04) ** (1 / 252) - 1`. TA-EAAT is summarized by the median rather than
+the mean because near-zero tranche volatility denominators can create extreme
+outliers.
+
+Main Step 4 outputs:
+- `quant_analysis/step4_dqn_decision_rule_comparison.md`
+- `quant_analysis/plots/step4_dqn_decision_rule_value_validation.png`
+- `quant_analysis/plots/step4_dqn_decision_rule_value_test.png`
+- `quant_analysis/plots/step4_margin_vs_after_tax_value_validation.png`
+- `quant_analysis/plots/step4_margin_vs_after_tax_value_test.png`
+- `quant_analysis/plots/step4_eaat_median_sharpe_by_policy_validation.png`
+- `quant_analysis/plots/step4_eaat_median_sharpe_by_policy_test.png`
+- `quant_analysis/plots/step4_ta_eaat_median_sharpe_by_policy_validation.png`
+- `quant_analysis/plots/step4_ta_eaat_median_sharpe_by_policy_test.png`
+
+Legacy Step 4B risk-adjusted diagnostics were removed from the final workflow
+and manifest. Those files used risk-free rate `0`, no annualization, and
+reward/step-return proxy Sharpe calculations, so they are not final thesis
+metrics.
+
 ---
 
 ## Tax-aware environment
