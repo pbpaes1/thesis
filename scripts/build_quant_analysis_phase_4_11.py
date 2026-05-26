@@ -160,6 +160,10 @@ STEP6_EAAT_SHARPE_COLUMNS = [
     "median_TA_EAAT_annualized_after_tax_return",
     "median_TA_EAAT_annualized_volatility",
 ]
+STEP6_HEADLINE_SHARPE_COLUMNS = [
+    "median_EAAT_Sharpe",
+    "median_TA_EAAT_Sharpe",
+]
 STEP4_SOURCE_REQUIRED_SHARPE_COLUMNS = [
     "split",
     "policy_name",
@@ -1462,6 +1466,20 @@ def build_step6(
         how="left",
         validate="one_to_one",
     )
+    remaining_sharpe_columns = [
+        column
+        for column in STEP6_EAAT_SHARPE_COLUMNS
+        if column not in STEP6_HEADLINE_SHARPE_COLUMNS
+    ]
+    out = out[
+        [
+            "split",
+            "policy_name",
+            *STEP6_HEADLINE_SHARPE_COLUMNS,
+            *[column for column in columns if column not in {"split", "policy_name"}],
+            *remaining_sharpe_columns,
+        ]
+    ]
     validate_step6_output(out, sharpe_df)
     save_table(
         out,
