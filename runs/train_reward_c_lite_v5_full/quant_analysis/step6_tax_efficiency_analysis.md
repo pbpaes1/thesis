@@ -1,3 +1,34 @@
+# Step 6 Tax-Efficiency Analysis
+
+## Headline Corrected Sharpe Diagnostics
+
+| split      | policy_name                                      | median_EAAT_Sharpe | median_TA_EAAT_Sharpe |
+| ---------- | ------------------------------------------------ | ------------------ | --------------------- |
+| validation | hold_to_terminal                                 | 1.173366912        | 1.173366912           |
+| validation | sell_immediately                                 | 1.360175586        | 2.098840598           |
+| validation | sell_half_then_hold                              | 1.273844586        | 1.773798685           |
+| validation | sell_quarters_over_time                          | 1.360496814        | 2.056636699           |
+| validation | random_policy                                    | 1.358244788        | 2.077504654           |
+| validation | trained_dqn_greedy                               | 1.285810296        | 1.751170026           |
+| validation | trained_dqn_thresholded_margin_0p020             | 1.228657993        | 1.600777592           |
+| validation | trained_dqn_first_sale_margin_0p060_normal_0p020 | 1.15931625         | 1.328430194           |
+| validation | trained_dqn_first_sale_margin_0p070_normal_0p020 | 1.153918551        | 1.284171008           |
+| validation | trained_dqn_first_sale_margin_0p080_normal_0p020 | 1.182044746        | 1.264021815           |
+| validation | trained_dqn_first_sale_margin_0p090_normal_0p020 | 1.185358607        | 1.23211709            |
+| test       | hold_to_terminal                                 | 1.478944841        | 1.478944841           |
+| test       | sell_immediately                                 | 1.520391136        | 2.13412908            |
+| test       | sell_half_then_hold                              | 1.517092555        | 1.924045889           |
+| test       | sell_quarters_over_time                          | 1.527587288        | 2.11433108            |
+| test       | random_policy                                    | 1.528159889        | 2.136841918           |
+| test       | trained_dqn_greedy                               | 1.467301205        | 1.888059229           |
+| test       | trained_dqn_thresholded_margin_0p020             | 1.433983233        | 1.69119417            |
+| test       | trained_dqn_first_sale_margin_0p060_normal_0p020 | 1.444854105        | 1.613857187           |
+| test       | trained_dqn_first_sale_margin_0p070_normal_0p020 | 1.449197857        | 1.603089716           |
+| test       | trained_dqn_first_sale_margin_0p080_normal_0p020 | 1.457615645        | 1.577682351           |
+| test       | trained_dqn_first_sale_margin_0p090_normal_0p020 | 1.457615645        | 1.545273134           |
+
+## Full Tax-Accounting And Risk-Adjusted Diagnostics
+
 | split      | policy_name                                      | median_EAAT_Sharpe | median_TA_EAAT_Sharpe | short_term_realized_fraction | long_term_realized_fraction | mean_total_tax_paid | median_total_tax_paid | tax_paid_as_pct_of_positive_taxable_pre_tax_increment | mean_effective_tax_rate | mean_pre_tax_realized_gain | mean_after_tax_realized_gain | mean_after_tax_value_loss_vs_pre_tax | mean_after_tax_value_loss_pct_vs_pre_tax | mean_final_after_tax_total_value | mean_final_pre_tax_total_value | mean_final_after_tax_value_loss_vs_pre_tax | mean_final_after_tax_value_loss_pct_vs_pre_tax | mean_realized_after_tax_pnl | mean_tax_paid_difference_vs_hold_to_terminal | mean_tax_paid_difference_vs_sell_immediately | num_valid_EAAT_Sharpe_episodes | pct_positive_EAAT_Sharpe | mean_EAAT_annualized_after_tax_return | median_EAAT_annualized_after_tax_return | mean_EAAT_annualized_volatility | median_EAAT_annualized_volatility | num_valid_TA_EAAT_Sharpe_episodes | pct_positive_TA_EAAT_Sharpe | median_TA_EAAT_annualized_after_tax_return | median_TA_EAAT_annualized_volatility |
 | ---------- | ------------------------------------------------ | ------------------ | --------------------- | ---------------------------- | --------------------------- | ------------------- | --------------------- | ----------------------------------------------------- | ----------------------- | -------------------------- | ---------------------------- | ------------------------------------ | ---------------------------------------- | -------------------------------- | ------------------------------ | ------------------------------------------ | ---------------------------------------------- | --------------------------- | -------------------------------------------- | -------------------------------------------- | ------------------------------ | ------------------------ | ------------------------------------- | --------------------------------------- | ------------------------------- | --------------------------------- | --------------------------------- | --------------------------- | ------------------------------------------ | ------------------------------------ |
 | validation | hold_to_terminal                                 | 1.173366912        | 1.173366912           | 0                            | 1                           | 0.05887605218       | 0.04362044476         | 0.1018                                                | 0.09750520765           | 0.5721112532               | 0.5132352011                 | 0.05887605218                        | 0.1029101453                             | 0.5132352011                     | 0.5721112532                   | 0.05887605218                              | 0.1029101453                                   | 0.5132352011                | 0                                            | -0.04148600676                               | 1517                           | 0.9386947924             | 0.5154437134                          | 0.3868601528                            | 0.3539275381                    | 0.3207094158                      | 1517                              | 0.9386947924                | 0.3868601528                               | 0.3207094158                         |

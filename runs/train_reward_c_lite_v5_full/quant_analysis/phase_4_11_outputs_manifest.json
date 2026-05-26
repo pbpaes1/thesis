@@ -102,7 +102,7 @@
     "type": "csv"
   },
   {
-    "description": "Tax-efficiency analysis for final policy universe.",
+    "description": "Preview-friendly tax-efficiency analysis with headline Sharpe diagnostics.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step6_tax_efficiency_analysis.md",
     "step": "6",
     "type": "md"

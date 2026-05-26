@@ -345,7 +345,7 @@ def compact_json(value: Any) -> str:
     return str(value)
 
 
-def write_markdown_table(df: pd.DataFrame, path: Path) -> None:
+def markdown_table_text(df: pd.DataFrame) -> str:
     def fmt(value: Any) -> str:
         if value is None or pd.isna(value):
             text = ""
@@ -373,7 +373,11 @@ def write_markdown_table(df: pd.DataFrame, path: Path) -> None:
             + " | ".join(row[index].ljust(widths[index]) for index in range(len(headers)))
             + " |"
         )
-    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return "\n".join(lines) + "\n"
+
+
+def write_markdown_table(df: pd.DataFrame, path: Path) -> None:
+    path.write_text(markdown_table_text(df), encoding="utf-8")
 
 
 def save_table(
@@ -1355,6 +1359,31 @@ def plot_step6_median_eaat_ta_eaat_sharpe(
     )
 
 
+def write_step6_tax_efficiency_markdown(out: pd.DataFrame, path: Path) -> None:
+    headline_columns = [
+        "split",
+        "policy_name",
+        "median_EAAT_Sharpe",
+        "median_TA_EAAT_Sharpe",
+    ]
+    headline = out[headline_columns]
+    text = "\n".join(
+        [
+            "# Step 6 Tax-Efficiency Analysis",
+            "",
+            "## Headline Corrected Sharpe Diagnostics",
+            "",
+            markdown_table_text(headline).rstrip(),
+            "",
+            "## Full Tax-Accounting And Risk-Adjusted Diagnostics",
+            "",
+            markdown_table_text(out).rstrip(),
+            "",
+        ]
+    )
+    path.write_text(text, encoding="utf-8")
+
+
 def build_step6(
     episode_df: pd.DataFrame,
     output_dir: Path,
@@ -1481,13 +1510,21 @@ def build_step6(
         ]
     ]
     validate_step6_output(out, sharpe_df)
-    save_table(
-        out,
-        output_dir / "step6_tax_efficiency_analysis.csv",
-        output_dir / "step6_tax_efficiency_analysis.md",
-        registry,
+    step6_csv_path = output_dir / "step6_tax_efficiency_analysis.csv"
+    step6_md_path = output_dir / "step6_tax_efficiency_analysis.md"
+    out.to_csv(step6_csv_path, index=False)
+    write_step6_tax_efficiency_markdown(out, step6_md_path)
+    registry.add(
+        step6_csv_path,
+        "csv",
         "6",
         "Tax-efficiency analysis for final policy universe.",
+    )
+    registry.add(
+        step6_md_path,
+        "md",
+        "6",
+        "Preview-friendly tax-efficiency analysis with headline Sharpe diagnostics.",
     )
     notes = "\n".join(
         [
