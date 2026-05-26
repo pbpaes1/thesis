@@ -540,8 +540,32 @@
     "type": "txt"
   },
   {
-    "description": "Preferred minus hold by final value bucket for test split.",
+    "description": "Preferred minus hold mean final after-tax value by final_episode_return_bucket for test split.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_preferred_minus_hold_by_final_value_bucket_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Preferred minus hold mean final after-tax value by volatility_bucket for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_preferred_minus_hold_by_volatility_bucket_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Preferred minus hold mean final after-tax value by gain_at_episode_start_bucket for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_preferred_minus_hold_by_gain_at_episode_start_bucket_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Preferred minus hold mean final after-tax value by days_until_tax_transition_at_start_bucket for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_preferred_minus_hold_by_days_until_tax_transition_at_start_bucket_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy median EAAT and TA-EAAT Sharpe across new Step 9 test groupings.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_median_eaat_ta_eaat_sharpe_by_group_test.png",
     "step": "9",
     "type": "png"
   },

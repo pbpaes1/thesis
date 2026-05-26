@@ -1,7 +1,9 @@
 Step 9 skipped grouping notes
-validation: maximum gain bucket computed from max after_tax_total_value minus first after_tax_total_value proxy.
-validation: drawdown bucket computed from first after_tax_total_value minus minimum after_tax_total_value proxy.
-validation: sector grouping skipped; no sector column exists in baseline artifacts.
-test: maximum gain bucket computed from max after_tax_total_value minus first after_tax_total_value proxy.
-test: drawdown bucket computed from first after_tax_total_value minus minimum after_tax_total_value proxy.
-test: sector grouping skipped; no sector column exists in baseline artifacts.
+gain_at_episode_start_bucket uses tertiles of raw unrealized_gains_pct from the first hold_to_terminal rollout step, joined from the configured episode parquet.
+volatility_bucket uses tertiles of hold_to_terminal daily/path percent changes computed from after_tax_total_value.
+days_until_tax_transition_at_start_bucket uses tertiles of the first hold_to_terminal rollout date distance to tax_transition_date.
+maximum_gain_bucket uses the hold_to_terminal path proxy: maximum after_tax_total_value minus first after_tax_total_value.
+drawdown_after_episode_start_bucket uses the hold_to_terminal path proxy: first after_tax_total_value minus minimum after_tax_total_value.
+sector and industry groupings are intentionally skipped; sector analysis is out of scope for this Step 9 update.
+EAAT and TA-EAAT Sharpe diagnostics are merged from runs/train_reward_c_lite_v5_full/quant_analysis/step3b_episode_eaat_sharpe_metrics.csv.
+Final after-tax value remains the primary thesis metric; EAAT and TA-EAAT Sharpe ratios are secondary risk-adjusted diagnostics.

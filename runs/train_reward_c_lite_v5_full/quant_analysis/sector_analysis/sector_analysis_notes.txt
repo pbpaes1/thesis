@@ -1,0 +1,17 @@
+Sector analysis notes
+metadata_source: yfinance.Ticker.info
+metadata_cache_file: data/metadata/ticker_sector_metadata.csv
+ticker_extraction_method: parsed ticker from episode_id prefix before the first underscore in runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv.; episode_id_parsing_convention: examples such as AAPL_2018-01-03 are interpreted as ticker=AAPL.
+number_of_tickers_found: 931
+number_with_sector: 871
+number_missing_sector: 60
+number_failed: 59
+unknown_sector_exists: True
+industry_min_episodes_per_group: 20
+sector_analysis_scope: diagnostic interpretation only.
+final_after_tax_value_primary_metric: True
+EAAT_and_TA_EAAT_Sharpe_secondary_risk_adjusted_diagnostics: True
+policy_selection_changed_based_on_sector_results: False
+preferred_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
+benchmarks: hold_to_terminal; sell_immediately; sell_half_then_hold
+interpretation_focus: sectors where preferred DQN helps or fails, and whether patterns align with active liquidation, tax timing, or no-cut behavior.

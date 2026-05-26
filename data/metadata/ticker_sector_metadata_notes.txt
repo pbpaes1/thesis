@@ -1,0 +1,13 @@
+Ticker sector metadata notes
+run_dir: runs/train_reward_c_lite_v5_full
+metadata_source: yfinance.Ticker.info
+metadata_cache_file: data/metadata/ticker_sector_metadata.csv
+force_refresh: False
+reused_cache_for_all_required_tickers: False
+ticker_extraction_method: parsed ticker from episode_id prefix before the first underscore in runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv.
+episode_id_parsing_convention: examples such as AAPL_2018-01-03 are interpreted as ticker=AAPL.
+number_of_tickers_found: 931
+number_with_sector: 871
+number_missing_sector: 60
+number_failed: 59
+missing or failed sectors are filled as Unknown.

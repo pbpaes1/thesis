@@ -302,6 +302,55 @@ STEP8_REQUIRED_EPISODE_COLUMNS = [
     "days_to_first_sale",
 ]
 STEP8_FORBIDDEN_LEGACY_SHARPE_COLUMNS = STEP6_FORBIDDEN_LEGACY_SHARPE_COLUMNS
+STEP9_POLICIES = [
+    PREFERRED_POLICY,
+    "hold_to_terminal",
+    "sell_immediately",
+    "sell_half_then_hold",
+]
+STEP9_POLICY_LABELS = {
+    PREFERRED_POLICY: "preferred",
+    "hold_to_terminal": "hold_to_terminal",
+    "sell_immediately": "sell_immediately",
+    "sell_half_then_hold": "sell_half_then_hold",
+}
+STEP9_REQUIRED_OUTPUT_COLUMNS = [
+    "split",
+    "group_name",
+    "group_bucket",
+    "num_episodes",
+    "preferred_mean_final_value",
+    "hold_to_terminal_mean_final_value",
+    "sell_immediately_mean_final_value",
+    "sell_half_then_hold_mean_final_value",
+    "preferred_minus_hold_mean",
+    "preferred_minus_sell_immediately_mean",
+    "preferred_minus_sell_half_mean",
+    "preferred_win_rate_vs_hold",
+    "preferred_win_rate_vs_sell_immediately",
+    "preferred_win_rate_vs_sell_half",
+    "preferred_median_EAAT_Sharpe",
+    "hold_to_terminal_median_EAAT_Sharpe",
+    "sell_immediately_median_EAAT_Sharpe",
+    "sell_half_then_hold_median_EAAT_Sharpe",
+    "preferred_median_TA_EAAT_Sharpe",
+    "hold_to_terminal_median_TA_EAAT_Sharpe",
+    "sell_immediately_median_TA_EAAT_Sharpe",
+    "sell_half_then_hold_median_TA_EAAT_Sharpe",
+    "preferred_minus_hold_mean_EAAT_Sharpe",
+    "preferred_minus_hold_median_EAAT_Sharpe",
+    "preferred_EAAT_Sharpe_win_rate_vs_hold",
+    "preferred_minus_hold_mean_TA_EAAT_Sharpe",
+    "preferred_minus_hold_median_TA_EAAT_Sharpe",
+    "preferred_TA_EAAT_Sharpe_win_rate_vs_hold",
+]
+STEP9_FORBIDDEN_LEGACY_SHARPE_COLUMNS = STEP6_FORBIDDEN_LEGACY_SHARPE_COLUMNS | {
+    "reward_path_sharpe",
+    "reward-path Sharpe",
+    "step_return_proxy_sharpe",
+    "full_horizon_annualized_sharpe",
+    "invested_period_annualized_sharpe",
+}
 STEP4_EAAT_NOTE_REQUIRED_PHRASES = [
     "EAAT Sharpe uses terminal after-tax wealth",
     "TA-EAAT Sharpe uses sale-level tranches",
@@ -3323,6 +3372,297 @@ def quantile_bucket(series: pd.Series, labels: list[str]) -> pd.Series:
         return pd.Series(["unbucketed"] * len(series), index=series.index)
 
 
+def safe_mean(series: pd.Series) -> float:
+    values = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    return float(values.mean()) if values.notna().any() else np.nan
+
+
+def safe_median(series: pd.Series) -> float:
+    values = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    return float(values.median()) if values.notna().any() else np.nan
+
+
+def safe_win_rate(diff: pd.Series) -> float:
+    values = pd.to_numeric(diff, errors="coerce").replace([np.inf, -np.inf], np.nan)
+    values = values.dropna()
+    return float(values.gt(0).mean()) if len(values) else np.nan
+
+
+def load_step3b_episode_eaat_sharpe_metrics(
+    output_dir: Path,
+) -> tuple[pd.DataFrame, Path]:
+    csv_path = output_dir / "step3b_episode_eaat_sharpe_metrics.csv"
+    notes_path = output_dir / "step3b_eaat_sharpe_metrics_notes.txt"
+    if not csv_path.exists():
+        raise FileNotFoundError(
+            "Step 9 requires corrected Step 3B episode-level EAAT/TA-EAAT "
+            f"Sharpe metrics, but missing: {relative_project_path(csv_path)}"
+        )
+    validate_step3b_eaat_notes(notes_path)
+    df = pd.read_csv(csv_path, low_memory=False)
+    required = [
+        "split",
+        "policy_name",
+        "episode_id",
+        "EAAT_Sharpe",
+        "TA_EAAT_Sharpe",
+        "annual_risk_free_rate",
+        "daily_risk_free_rate",
+        "annualization_factor",
+    ]
+    require_columns(
+        df,
+        required,
+        source=csv_path,
+        step="Step 9 corrected Step 3B episode Sharpe merge",
+    )
+    if not np.isclose(
+        pd.to_numeric(df["annual_risk_free_rate"], errors="coerce").dropna().unique(),
+        ANNUAL_RISK_FREE_RATE,
+    ).all():
+        raise ValueError(
+            "Step 9 corrected Step 3B episode Sharpe rows must use "
+            f"annual_risk_free_rate={ANNUAL_RISK_FREE_RATE}."
+        )
+    if not np.isclose(
+        pd.to_numeric(df["daily_risk_free_rate"], errors="coerce").dropna().unique(),
+        DAILY_RISK_FREE_RATE,
+    ).all():
+        raise ValueError(
+            "Step 9 corrected Step 3B episode Sharpe rows must use "
+            f"daily_risk_free_rate={DAILY_RISK_FREE_RATE}."
+        )
+    if not np.isclose(
+        pd.to_numeric(df["annualization_factor"], errors="coerce").dropna().unique(),
+        ANNUALIZATION_FACTOR,
+    ).all():
+        raise ValueError(
+            "Step 9 corrected Step 3B episode Sharpe rows must use "
+            f"annualization_factor={ANNUALIZATION_FACTOR}."
+        )
+    duplicate_count = int(df.duplicated(["split", "policy_name", "episode_id"]).sum())
+    if duplicate_count:
+        raise ValueError(
+            "Step 9 cannot merge corrected Sharpe metrics because Step 3B has "
+            f"{duplicate_count} duplicate split/policy/episode rows."
+        )
+    missing = missing_split_policy_rows(
+        df,
+        policies=STEP9_POLICIES,
+        splits=VALIDATION_TEST_SPLITS,
+    )
+    if missing:
+        raise ValueError(
+            "Step 9 corrected Sharpe merge is missing required split/policy rows: "
+            + ", ".join(missing)
+        )
+    df = df[df["split"].isin(VALIDATION_TEST_SPLITS) & df["policy_name"].isin(STEP9_POLICIES)].copy()
+    for column in ["EAAT_Sharpe", "TA_EAAT_Sharpe"]:
+        df[column] = pd.to_numeric(df[column], errors="coerce").replace(
+            [np.inf, -np.inf],
+            np.nan,
+        )
+    return df[["split", "policy_name", "episode_id", "EAAT_Sharpe", "TA_EAAT_Sharpe"]], csv_path
+
+
+def step9_hold_path_stats(step_df: pd.DataFrame) -> pd.DataFrame:
+    hold_steps = step_df[
+        step_df["split"].isin(VALIDATION_TEST_SPLITS)
+        & step_df["policy_name"].eq("hold_to_terminal")
+    ].copy()
+    hold_steps = hold_steps.sort_values(["split", "episode_id", "step_in_episode"])
+    hold_steps["date"] = pd.to_datetime(hold_steps["date"], errors="coerce")
+    hold_steps["tax_transition_date"] = pd.to_datetime(
+        hold_steps["tax_transition_date"],
+        errors="coerce",
+    )
+    hold_steps["path_return_pct"] = hold_steps.groupby(["split", "episode_id"])[
+        "after_tax_total_value"
+    ].pct_change()
+    hold_steps["path_return_pct"] = hold_steps["path_return_pct"].replace(
+        [np.inf, -np.inf],
+        np.nan,
+    )
+    stats = (
+        hold_steps.groupby(["split", "episode_id"], as_index=False)
+        .agg(
+            hold_path_first_value=("after_tax_total_value", "first"),
+            hold_path_max_value=("after_tax_total_value", "max"),
+            hold_path_min_value=("after_tax_total_value", "min"),
+            episode_start_date=("date", "first"),
+            tax_transition_date=("tax_transition_date", "first"),
+            volatility_proxy=("path_return_pct", "std"),
+        )
+    )
+    stats["maximum_gain_proxy"] = (
+        stats["hold_path_max_value"] - stats["hold_path_first_value"]
+    )
+    stats["drawdown_after_start_proxy"] = (
+        stats["hold_path_first_value"] - stats["hold_path_min_value"]
+    )
+    stats["days_until_tax_transition_at_start"] = (
+        stats["tax_transition_date"] - stats["episode_start_date"]
+    ).dt.days
+    stats["calendar_year"] = stats["episode_start_date"].dt.year.astype("Int64")
+    return stats
+
+
+def load_step9_episode_start_gain_features(
+    config: dict[str, Any],
+    hold_path_stats: pd.DataFrame,
+    notes: list[str],
+) -> pd.DataFrame:
+    parquet_path = resolve_project_path(require_nested(config, "environment.parquet_path"))
+    out = hold_path_stats[["split", "episode_id", "episode_start_date"]].copy()
+    out["gain_at_episode_start"] = np.nan
+    if not parquet_path.exists():
+        notes.append(
+            "gain_at_episode_start_bucket skipped because the configured episode parquet "
+            f"was unavailable: {relative_project_path(parquet_path)}."
+        )
+        return out[["split", "episode_id", "gain_at_episode_start"]]
+    try:
+        raw = pd.read_parquet(
+            parquet_path,
+            columns=["episode_id", "date", "unrealized_gains_pct"],
+        )
+    except Exception as exc:
+        notes.append(
+            "gain_at_episode_start_bucket skipped because unrealized_gains_pct could "
+            f"not be loaded from {relative_project_path(parquet_path)}: {exc}"
+        )
+        return out[["split", "episode_id", "gain_at_episode_start"]]
+    raw["date"] = pd.to_datetime(raw["date"], errors="coerce")
+    raw = raw.sort_values(["episode_id", "date"])
+    raw_first = (
+        raw.groupby("episode_id", as_index=False)
+        .first()[["episode_id", "date", "unrealized_gains_pct"]]
+        .rename(
+            columns={
+                "date": "raw_episode_start_date",
+                "unrealized_gains_pct": "gain_at_episode_start",
+            }
+        )
+    )
+    out = out.merge(raw_first, on="episode_id", how="left", validate="many_to_one")
+    out["gain_at_episode_start"] = pd.to_numeric(
+        out["gain_at_episode_start_y"],
+        errors="coerce",
+    )
+    start_matches = (
+        pd.to_datetime(out["episode_start_date"], errors="coerce")
+        .eq(pd.to_datetime(out["raw_episode_start_date"], errors="coerce"))
+        .fillna(False)
+    )
+    unmatched = int((out["gain_at_episode_start"].notna() & ~start_matches).sum())
+    if unmatched:
+        notes.append(
+            "gain_at_episode_start_bucket loaded unrealized_gains_pct from the raw "
+            f"episode parquet; {unmatched} rows had a start-date mismatch and were left available by episode_id."
+        )
+    else:
+        notes.append(
+            "gain_at_episode_start_bucket uses tertiles of raw unrealized_gains_pct "
+            "from the first hold_to_terminal rollout step, joined from the configured episode parquet."
+        )
+    return out[["split", "episode_id", "gain_at_episode_start"]]
+
+
+def validate_step9_inputs(episode_df: pd.DataFrame, step_df: pd.DataFrame) -> None:
+    require_columns(
+        episode_df,
+        [
+            "split",
+            "policy_name",
+            "episode_id",
+            "episode_final_after_tax_total_value",
+            "total_tax_paid",
+            "pct_episode_position_sold_short_term",
+            "episode_cut_occurred",
+            "days_to_first_sale",
+        ],
+        source=Path("baseline episode metrics"),
+        step="Step 9",
+    )
+    require_columns(
+        step_df,
+        [
+            "split",
+            "policy_name",
+            "episode_id",
+            "step_in_episode",
+            "date",
+            "tax_transition_date",
+            "after_tax_total_value",
+        ],
+        source=Path("baseline step rollouts"),
+        step="Step 9",
+    )
+    missing = missing_split_policy_rows(
+        episode_df,
+        policies=STEP9_POLICIES,
+        splits=VALIDATION_TEST_SPLITS,
+    )
+    if missing:
+        raise ValueError(
+            "Step 9 requires all preferred and benchmark policy rows: "
+            + ", ".join(missing)
+        )
+    duplicate_count = int(
+        episode_df[
+            episode_df["split"].isin(VALIDATION_TEST_SPLITS)
+            & episode_df["policy_name"].isin(STEP9_POLICIES)
+        ].duplicated(["split", "policy_name", "episode_id"]).sum()
+    )
+    if duplicate_count:
+        raise ValueError(
+            "Step 9 paired comparisons require unique split/policy/episode rows; "
+            f"found {duplicate_count} duplicates in baseline episode metrics."
+        )
+
+
+def validate_step9_output(df: pd.DataFrame) -> None:
+    if df.empty:
+        raise ValueError("Step 9 generated an empty cross-sectional table.")
+    missing = [column for column in STEP9_REQUIRED_OUTPUT_COLUMNS if column not in df.columns]
+    if missing:
+        raise ValueError(
+            "Step 9 output is missing required columns: " + ", ".join(missing)
+        )
+    bad_legacy = [
+        column for column in df.columns if column in STEP9_FORBIDDEN_LEGACY_SHARPE_COLUMNS
+    ]
+    if bad_legacy:
+        raise ValueError(
+            "Step 9 output attempted to include forbidden legacy Sharpe column(s): "
+            + ", ".join(sorted(set(bad_legacy)))
+        )
+    bad_sector_groups = sorted(
+        group_name
+        for group_name in df["group_name"].astype(str).unique()
+        if "sector" in group_name.lower() or "industry" in group_name.lower()
+    )
+    if bad_sector_groups:
+        raise ValueError(
+            "Step 9 sector/industry analysis is out of scope for this task, but "
+            "group(s) were generated: " + ", ".join(bad_sector_groups)
+        )
+    numeric = df.select_dtypes(include=[np.number])
+    if np.isinf(numeric.to_numpy()).any():
+        raise ValueError("Step 9 output contains infinite numeric values.")
+
+
+def add_step9_grouping(
+    base: pd.DataFrame,
+    rows: list[dict[str, Any]],
+    *,
+    split: str,
+    group_name: str,
+    group_column: str,
+) -> None:
+    rows.extend(build_cross_section_group_rows(base, group_name, group_column, split))
+
+
 def build_cross_section_group_rows(
     base: pd.DataFrame,
     group_name: str,
@@ -3334,36 +3674,185 @@ def build_cross_section_group_rows(
         pref_minus_hold = group["preferred_value"] - group["hold_to_terminal_value"]
         pref_minus_sell = group["preferred_value"] - group["sell_immediately_value"]
         pref_minus_half = group["preferred_value"] - group["sell_half_then_hold_value"]
+        pref_minus_hold_eaat = group["preferred_EAAT_Sharpe"] - group[
+            "hold_to_terminal_EAAT_Sharpe"
+        ]
+        pref_minus_sell_eaat = group["preferred_EAAT_Sharpe"] - group[
+            "sell_immediately_EAAT_Sharpe"
+        ]
+        pref_minus_half_eaat = group["preferred_EAAT_Sharpe"] - group[
+            "sell_half_then_hold_EAAT_Sharpe"
+        ]
+        pref_minus_hold_ta = group["preferred_TA_EAAT_Sharpe"] - group[
+            "hold_to_terminal_TA_EAAT_Sharpe"
+        ]
+        pref_minus_sell_ta = group["preferred_TA_EAAT_Sharpe"] - group[
+            "sell_immediately_TA_EAAT_Sharpe"
+        ]
+        pref_minus_half_ta = group["preferred_TA_EAAT_Sharpe"] - group[
+            "sell_half_then_hold_TA_EAAT_Sharpe"
+        ]
         rows.append(
             {
                 "split": split,
                 "group_name": group_name,
                 "group_bucket": str(bucket),
                 "num_episodes": int(len(group)),
-                "preferred_mean_final_value": group["preferred_value"].mean(),
-                "hold_to_terminal_mean_final_value": group[
-                    "hold_to_terminal_value"
-                ].mean(),
-                "sell_immediately_mean_final_value": group[
-                    "sell_immediately_value"
-                ].mean(),
-                "sell_half_then_hold_mean_final_value": group[
-                    "sell_half_then_hold_value"
-                ].mean(),
-                "preferred_minus_hold_mean": pref_minus_hold.mean(),
-                "preferred_minus_sell_immediately_mean": pref_minus_sell.mean(),
-                "preferred_minus_sell_half_mean": pref_minus_half.mean(),
-                "preferred_win_rate_vs_hold": pref_minus_hold.gt(0).mean(),
-                "preferred_win_rate_vs_sell_immediately": pref_minus_sell.gt(0).mean(),
-                "preferred_win_rate_vs_sell_half": pref_minus_half.gt(0).mean(),
-                "preferred_mean_tax_paid": group["preferred_tax_paid"].mean(),
-                "preferred_mean_short_term_sold_fraction": group[
-                    "preferred_short_term"
-                ].mean(),
-                "preferred_no_cut_pct": group["preferred_no_cut"].mean(),
+                "preferred_mean_final_value": safe_mean(group["preferred_value"]),
+                "hold_to_terminal_mean_final_value": safe_mean(
+                    group["hold_to_terminal_value"]
+                ),
+                "sell_immediately_mean_final_value": safe_mean(
+                    group["sell_immediately_value"]
+                ),
+                "sell_half_then_hold_mean_final_value": safe_mean(
+                    group["sell_half_then_hold_value"]
+                ),
+                "preferred_minus_hold_mean": safe_mean(pref_minus_hold),
+                "preferred_minus_sell_immediately_mean": safe_mean(pref_minus_sell),
+                "preferred_minus_sell_half_mean": safe_mean(pref_minus_half),
+                "preferred_win_rate_vs_hold": safe_win_rate(pref_minus_hold),
+                "preferred_win_rate_vs_sell_immediately": safe_win_rate(pref_minus_sell),
+                "preferred_win_rate_vs_sell_half": safe_win_rate(pref_minus_half),
+                "preferred_mean_tax_paid": safe_mean(group["preferred_tax_paid"]),
+                "preferred_mean_short_term_sold_fraction": safe_mean(
+                    group["preferred_short_term"]
+                ),
+                "preferred_no_cut_pct": safe_mean(group["preferred_no_cut"].astype(float)),
+                "preferred_median_EAAT_Sharpe": safe_median(
+                    group["preferred_EAAT_Sharpe"]
+                ),
+                "hold_to_terminal_median_EAAT_Sharpe": safe_median(
+                    group["hold_to_terminal_EAAT_Sharpe"]
+                ),
+                "sell_immediately_median_EAAT_Sharpe": safe_median(
+                    group["sell_immediately_EAAT_Sharpe"]
+                ),
+                "sell_half_then_hold_median_EAAT_Sharpe": safe_median(
+                    group["sell_half_then_hold_EAAT_Sharpe"]
+                ),
+                "preferred_median_TA_EAAT_Sharpe": safe_median(
+                    group["preferred_TA_EAAT_Sharpe"]
+                ),
+                "hold_to_terminal_median_TA_EAAT_Sharpe": safe_median(
+                    group["hold_to_terminal_TA_EAAT_Sharpe"]
+                ),
+                "sell_immediately_median_TA_EAAT_Sharpe": safe_median(
+                    group["sell_immediately_TA_EAAT_Sharpe"]
+                ),
+                "sell_half_then_hold_median_TA_EAAT_Sharpe": safe_median(
+                    group["sell_half_then_hold_TA_EAAT_Sharpe"]
+                ),
+                "preferred_minus_hold_mean_EAAT_Sharpe": safe_mean(
+                    pref_minus_hold_eaat
+                ),
+                "preferred_minus_hold_median_EAAT_Sharpe": safe_median(
+                    pref_minus_hold_eaat
+                ),
+                "preferred_EAAT_Sharpe_win_rate_vs_hold": safe_win_rate(
+                    pref_minus_hold_eaat
+                ),
+                "preferred_minus_hold_mean_TA_EAAT_Sharpe": safe_mean(
+                    pref_minus_hold_ta
+                ),
+                "preferred_minus_hold_median_TA_EAAT_Sharpe": safe_median(
+                    pref_minus_hold_ta
+                ),
+                "preferred_TA_EAAT_Sharpe_win_rate_vs_hold": safe_win_rate(
+                    pref_minus_hold_ta
+                ),
+                "preferred_minus_sell_immediately_mean_EAAT_Sharpe": safe_mean(
+                    pref_minus_sell_eaat
+                ),
+                "preferred_minus_sell_half_mean_EAAT_Sharpe": safe_mean(
+                    pref_minus_half_eaat
+                ),
+                "preferred_minus_sell_immediately_mean_TA_EAAT_Sharpe": safe_mean(
+                    pref_minus_sell_ta
+                ),
+                "preferred_minus_sell_half_mean_TA_EAAT_Sharpe": safe_mean(
+                    pref_minus_half_ta
+                ),
             }
         )
     return rows
+
+
+def plot_step9_preferred_minus_hold(
+    out: pd.DataFrame,
+    *,
+    group_name: str,
+    path: Path,
+    registry: OutputRegistry,
+    title: str,
+) -> None:
+    plot_df = out[out["split"].eq("test") & out["group_name"].eq(group_name)].copy()
+    if plot_df.empty:
+        raise ValueError(
+            f"Step 9 plot has no rows for test split and group_name={group_name}."
+        )
+    colors = np.where(plot_df["preferred_minus_hold_mean"].ge(0), "#3b6ea8", "#8a4f3d")
+    plt.figure(figsize=(8.4, 4.8))
+    plt.bar(plot_df["group_bucket"], plot_df["preferred_minus_hold_mean"], color=colors)
+    plt.axhline(0, color="black", linewidth=1)
+    plt.ylabel("preferred minus hold mean final value")
+    plt.title(title)
+    plt.xticks(rotation=30, ha="right")
+    plt.grid(axis="y", alpha=0.25)
+    save_plot(
+        path,
+        registry,
+        "9",
+        f"Preferred minus hold mean final after-tax value by {group_name} for test split.",
+    )
+
+
+def plot_step9_preferred_sharpe_by_new_groups(
+    out: pd.DataFrame,
+    *,
+    path: Path,
+    registry: OutputRegistry,
+) -> None:
+    group_names = [
+        "volatility_bucket",
+        "gain_at_episode_start_bucket",
+        "days_until_tax_transition_at_start_bucket",
+    ]
+    plot_df = out[
+        out["split"].eq("test") & out["group_name"].isin(group_names)
+    ].copy()
+    if plot_df.empty:
+        raise ValueError("Step 9 Sharpe plot has no rows for the new test groupings.")
+    plot_df["label"] = plot_df["group_name"] + ": " + plot_df["group_bucket"]
+    x = np.arange(len(plot_df))
+    width = 0.38
+    plt.figure(figsize=(13.5, 5.6))
+    plt.bar(
+        x - width / 2,
+        plot_df["preferred_median_EAAT_Sharpe"],
+        width,
+        label="median EAAT Sharpe",
+        color="#3b6ea8",
+    )
+    plt.bar(
+        x + width / 2,
+        plot_df["preferred_median_TA_EAAT_Sharpe"],
+        width,
+        label="median TA-EAAT Sharpe",
+        color="#6c7a40",
+    )
+    plt.axhline(0, color="black", linewidth=1)
+    plt.ylabel("preferred policy median Sharpe")
+    plt.title("Preferred median EAAT and TA-EAAT Sharpe by new Step 9 groups - test")
+    plt.xticks(x, plot_df["label"], rotation=55, ha="right")
+    plt.legend()
+    plt.grid(axis="y", alpha=0.25)
+    save_plot(
+        path,
+        registry,
+        "9",
+        "Preferred policy median EAAT and TA-EAAT Sharpe across new Step 9 test groupings.",
+    )
 
 
 def build_step9(
@@ -3372,20 +3861,58 @@ def build_step9(
     output_dir: Path,
     plots_dir: Path,
     registry: OutputRegistry,
+    config: dict[str, Any],
 ) -> pd.DataFrame:
+    validate_step9_inputs(episode_df, step_df)
     notes: list[str] = []
     rows: list[dict[str, Any]] = []
-    policies = [PREFERRED_POLICY, "hold_to_terminal", "sell_immediately", "sell_half_then_hold"]
+    sharpe_df, sharpe_source = load_step3b_episode_eaat_sharpe_metrics(output_dir)
+    hold_path_stats = step9_hold_path_stats(step_df)
+    start_gain = load_step9_episode_start_gain_features(config, hold_path_stats, notes)
+    notes.append(
+        "volatility_bucket uses tertiles of hold_to_terminal daily/path percent "
+        "changes computed from after_tax_total_value."
+    )
+    notes.append(
+        "days_until_tax_transition_at_start_bucket uses tertiles of the first "
+        "hold_to_terminal rollout date distance to tax_transition_date."
+    )
+    notes.append(
+        "maximum_gain_bucket uses the hold_to_terminal path proxy: maximum "
+        "after_tax_total_value minus first after_tax_total_value."
+    )
+    notes.append(
+        "drawdown_after_episode_start_bucket uses the hold_to_terminal path proxy: "
+        "first after_tax_total_value minus minimum after_tax_total_value."
+    )
+    notes.append(
+        "sector and industry groupings are intentionally skipped; sector analysis "
+        "is out of scope for this Step 9 update."
+    )
+    notes.append(
+        "EAAT and TA-EAAT Sharpe diagnostics are merged from "
+        f"{relative_project_path(sharpe_source)}."
+    )
+    notes.append(
+        "Final after-tax value remains the primary thesis metric; EAAT and TA-EAAT "
+        "Sharpe ratios are secondary risk-adjusted diagnostics."
+    )
     for split in VALIDATION_TEST_SPLITS:
         split_metrics = episode_df[
-            episode_df["split"].eq(split) & episode_df["policy_name"].isin(policies)
+            episode_df["split"].eq(split) & episode_df["policy_name"].isin(STEP9_POLICIES)
         ].copy()
-        wide = split_metrics.pivot(
-            index="episode_id",
+        missing_policies = sorted(set(STEP9_POLICIES) - set(split_metrics["policy_name"].unique()))
+        if missing_policies:
+            raise ValueError(
+                f"Step 9 split={split} is missing required policy rows: "
+                + ", ".join(missing_policies)
+            )
+        value_wide = split_metrics.pivot(
+            index=["split", "episode_id"],
             columns="policy_name",
             values="episode_final_after_tax_total_value",
         ).reset_index()
-        wide = wide.rename(
+        value_wide = value_wide.rename(
             columns={
                 PREFERRED_POLICY: "preferred_value",
                 "hold_to_terminal": "hold_to_terminal_value",
@@ -3393,8 +3920,33 @@ def build_step9(
                 "sell_half_then_hold": "sell_half_then_hold_value",
             }
         )
+        value_columns = [
+            "preferred_value",
+            "hold_to_terminal_value",
+            "sell_immediately_value",
+            "sell_half_then_hold_value",
+        ]
+        if value_wide[value_columns].isna().any().any():
+            raise ValueError(
+                f"Step 9 split={split} has unpaired final-value rows for at least one required policy."
+            )
+        sharpe_long = sharpe_df[
+            sharpe_df["split"].eq(split) & sharpe_df["policy_name"].isin(STEP9_POLICIES)
+        ].copy()
+        sharpe_long["policy_label"] = sharpe_long["policy_name"].map(STEP9_POLICY_LABELS)
+        sharpe_wide = sharpe_long.pivot(
+            index=["split", "episode_id"],
+            columns="policy_label",
+            values=["EAAT_Sharpe", "TA_EAAT_Sharpe"],
+        )
+        sharpe_wide.columns = [
+            f"{policy_label}_{metric}"
+            for metric, policy_label in sharpe_wide.columns.to_flat_index()
+        ]
+        sharpe_wide = sharpe_wide.reset_index()
         pref_extra = split_metrics[split_metrics["policy_name"].eq(PREFERRED_POLICY)][
             [
+                "split",
                 "episode_id",
                 "total_tax_paid",
                 "pct_episode_position_sold_short_term",
@@ -3408,81 +3960,127 @@ def build_step9(
                 "episode_cut_occurred": "preferred_cut_occurred",
             }
         )
-        base = wide.merge(pref_extra, on="episode_id", how="inner")
+        base = value_wide.merge(
+            sharpe_wide,
+            on=["split", "episode_id"],
+            how="left",
+            validate="one_to_one",
+        )
+        required_sharpe_columns = [
+            f"{label}_{metric}"
+            for label in STEP9_POLICY_LABELS.values()
+            for metric in ["EAAT_Sharpe", "TA_EAAT_Sharpe"]
+        ]
+        missing_sharpe_columns = [
+            column for column in required_sharpe_columns if column not in base.columns
+        ]
+        if missing_sharpe_columns:
+            raise ValueError(
+                "Step 9 corrected Sharpe merge is missing columns: "
+                + ", ".join(missing_sharpe_columns)
+            )
+        base = base.merge(pref_extra, on=["split", "episode_id"], how="inner", validate="one_to_one")
+        base = base.merge(
+            hold_path_stats,
+            on=["split", "episode_id"],
+            how="left",
+            validate="one_to_one",
+        )
+        base = base.merge(
+            start_gain,
+            on=["split", "episode_id"],
+            how="left",
+            validate="one_to_one",
+        )
         base["preferred_no_cut"] = ~base["preferred_cut_occurred"]
         base["final_episode_return_bucket"] = quantile_bucket(
             base["preferred_value"],
             ["low", "mid", "high"],
         )
-        rows.extend(
-            build_cross_section_group_rows(
-                base,
-                "final_episode_return_bucket",
-                "final_episode_return_bucket",
-                split,
-            )
+        add_step9_grouping(
+            base,
+            rows,
+            split=split,
+            group_name="final_episode_return_bucket",
+            group_column="final_episode_return_bucket",
         )
 
-        pref_steps = step_df[
-            step_df["split"].eq(split) & step_df["policy_name"].eq(PREFERRED_POLICY)
-        ].copy()
-        path_stats = (
-            pref_steps.groupby("episode_id")
-            .agg(
-                first_value=("after_tax_total_value", "first"),
-                max_value=("after_tax_total_value", "max"),
-                min_value=("after_tax_total_value", "min"),
-                first_date=("date", "first"),
-            )
-            .reset_index()
-        )
-        path_stats["max_gain_proxy"] = (
-            path_stats["max_value"] - path_stats["first_value"]
-        )
-        path_stats["drawdown_after_start_proxy"] = (
-            path_stats["first_value"] - path_stats["min_value"]
-        )
-        path_stats["calendar_year"] = pd.to_datetime(
-            path_stats["first_date"],
-            errors="coerce",
-        ).dt.year.astype("Int64")
-        base_path = base.merge(path_stats, on="episode_id", how="left")
-        if base_path["max_gain_proxy"].notna().any():
-            notes.append(
-                f"{split}: maximum gain bucket computed from max after_tax_total_value minus first after_tax_total_value proxy."
-            )
-            base_path["maximum_gain_bucket"] = quantile_bucket(
-                base_path["max_gain_proxy"],
+        if base["maximum_gain_proxy"].notna().any():
+            base["maximum_gain_bucket"] = quantile_bucket(
+                base["maximum_gain_proxy"],
                 ["low", "mid", "high"],
             )
-            rows.extend(
-                build_cross_section_group_rows(
-                    base_path,
-                    "maximum_gain_bucket",
-                    "maximum_gain_bucket",
-                    split,
-                )
+            add_step9_grouping(
+                base,
+                rows,
+                split=split,
+                group_name="maximum_gain_bucket",
+                group_column="maximum_gain_bucket",
             )
         else:
             notes.append(f"{split}: maximum gain bucket skipped; no path proxy available.")
-        if base_path["drawdown_after_start_proxy"].notna().any():
-            notes.append(
-                f"{split}: drawdown bucket computed from first after_tax_total_value minus minimum after_tax_total_value proxy."
-            )
-            base_path["drawdown_after_episode_start_bucket"] = quantile_bucket(
-                base_path["drawdown_after_start_proxy"],
+        if base["drawdown_after_start_proxy"].notna().any():
+            base["drawdown_after_episode_start_bucket"] = quantile_bucket(
+                base["drawdown_after_start_proxy"],
                 ["low", "mid", "high"],
             )
-            rows.extend(
-                build_cross_section_group_rows(
-                    base_path,
-                    "drawdown_after_episode_start_bucket",
-                    "drawdown_after_episode_start_bucket",
-                    split,
-                )
+            add_step9_grouping(
+                base,
+                rows,
+                split=split,
+                group_name="drawdown_after_episode_start_bucket",
+                group_column="drawdown_after_episode_start_bucket",
             )
         else:
             notes.append(f"{split}: drawdown bucket skipped; no path proxy available.")
+        if base["volatility_proxy"].notna().any():
+            base["volatility_bucket"] = quantile_bucket(
+                base["volatility_proxy"],
+                ["low_volatility", "medium_volatility", "high_volatility"],
+            ).astype(object)
+            add_step9_grouping(
+                base,
+                rows,
+                split=split,
+                group_name="volatility_bucket",
+                group_column="volatility_bucket",
+            )
+        else:
+            notes.append(
+                f"{split}: volatility_bucket skipped because hold_to_terminal path volatility could not be computed."
+            )
+        if base["gain_at_episode_start"].notna().any():
+            base["gain_at_episode_start_bucket"] = quantile_bucket(
+                base["gain_at_episode_start"],
+                ["low_start_gain", "medium_start_gain", "high_start_gain"],
+            ).astype(object)
+            add_step9_grouping(
+                base,
+                rows,
+                split=split,
+                group_name="gain_at_episode_start_bucket",
+                group_column="gain_at_episode_start_bucket",
+            )
+        else:
+            notes.append(
+                f"{split}: gain_at_episode_start_bucket skipped because unrealized_gains_pct was unavailable in Step 9 inputs and no valid raw parquet join was available."
+            )
+        if base["days_until_tax_transition_at_start"].notna().any():
+            base["days_until_tax_transition_at_start_bucket"] = quantile_bucket(
+                base["days_until_tax_transition_at_start"],
+                ["near_transition", "medium_transition_distance", "far_from_transition"],
+            ).astype(object)
+            add_step9_grouping(
+                base,
+                rows,
+                split=split,
+                group_name="days_until_tax_transition_at_start_bucket",
+                group_column="days_until_tax_transition_at_start_bucket",
+            )
+        else:
+            notes.append(
+                f"{split}: days_until_tax_transition_at_start_bucket skipped because dates or tax transition dates were unavailable."
+            )
         base["days_to_first_sale_bucket"] = pd.cut(
             base["days_to_first_sale"],
             bins=[-np.inf, 0, 30, 180, np.inf],
@@ -3491,28 +4089,27 @@ def build_step9(
         base["days_to_first_sale_bucket"] = base["days_to_first_sale_bucket"].fillna(
             "no_discretionary_sale"
         )
-        rows.extend(
-            build_cross_section_group_rows(
-                base,
-                "days_to_first_sale_bucket",
-                "days_to_first_sale_bucket",
-                split,
-            )
+        add_step9_grouping(
+            base,
+            rows,
+            split=split,
+            group_name="days_to_first_sale_bucket",
+            group_column="days_to_first_sale_bucket",
         )
-        if base_path["calendar_year"].notna().any():
-            rows.extend(
-                build_cross_section_group_rows(
-                    base_path,
-                    "calendar_year",
-                    "calendar_year",
-                    split,
-                )
+        if base["calendar_year"].notna().any():
+            add_step9_grouping(
+                base,
+                rows,
+                split=split,
+                group_name="calendar_year",
+                group_column="calendar_year",
             )
         else:
             notes.append(f"{split}: calendar year skipped; no valid date available.")
-        notes.append(f"{split}: sector grouping skipped; no sector column exists in baseline artifacts.")
 
     out = pd.DataFrame(rows)
+    out = out.replace([np.inf, -np.inf], np.nan)
+    validate_step9_output(out)
     save_table(
         out,
         output_dir / "step9_cross_sectional_episode_analysis.csv",
@@ -3528,20 +4125,38 @@ def build_step9(
         "9",
         "Skipped or proxied cross-sectional grouping notes.",
     )
-    plot_df = out[
-        out["split"].eq("test") & out["group_name"].eq("final_episode_return_bucket")
-    ]
-    plt.figure(figsize=(7, 4.5))
-    plt.bar(plot_df["group_bucket"], plot_df["preferred_minus_hold_mean"], color="#3b6ea8")
-    plt.axhline(0, color="black", linewidth=1)
-    plt.ylabel("preferred minus hold mean final value")
-    plt.title("Preferred minus hold by final value bucket - test")
-    plt.grid(axis="y", alpha=0.25)
-    save_plot(
-        plots_dir / "step9_preferred_minus_hold_by_final_value_bucket_test.png",
-        registry,
-        "9",
-        "Preferred minus hold by final value bucket for test split.",
+    plot_step9_preferred_minus_hold(
+        out,
+        group_name="final_episode_return_bucket",
+        path=plots_dir / "step9_preferred_minus_hold_by_final_value_bucket_test.png",
+        registry=registry,
+        title="Preferred minus hold by final value bucket - test",
+    )
+    plot_step9_preferred_minus_hold(
+        out,
+        group_name="volatility_bucket",
+        path=plots_dir / "step9_preferred_minus_hold_by_volatility_bucket_test.png",
+        registry=registry,
+        title="Preferred minus hold by volatility bucket - test",
+    )
+    plot_step9_preferred_minus_hold(
+        out,
+        group_name="gain_at_episode_start_bucket",
+        path=plots_dir / "step9_preferred_minus_hold_by_gain_at_episode_start_bucket_test.png",
+        registry=registry,
+        title="Preferred minus hold by gain-at-episode-start bucket - test",
+    )
+    plot_step9_preferred_minus_hold(
+        out,
+        group_name="days_until_tax_transition_at_start_bucket",
+        path=plots_dir / "step9_preferred_minus_hold_by_days_until_tax_transition_at_start_bucket_test.png",
+        registry=registry,
+        title="Preferred minus hold by tax-transition distance - test",
+    )
+    plot_step9_preferred_sharpe_by_new_groups(
+        out,
+        path=plots_dir / "step9_median_eaat_ta_eaat_sharpe_by_group_test.png",
+        registry=registry,
     )
     return out
 
@@ -3896,7 +4511,7 @@ def write_final_summary_and_manifest(
     lines = [
         "Quantitative Analysis Phase 4-11 Summary",
         "script_run: python scripts/build_quant_analysis_phase_4_11.py --config configs/train_reward_c_lite_v5.yaml",
-        "source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_policy_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_eaat_sharpe_metrics_notes.txt",
+        "source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_policy_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_episode_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_eaat_sharpe_metrics_notes.txt; data/episodes/drl_episodes.parquet",
         f"output_directory: {relative_project_path(output_dir)}",
         f"number_of_tables_created: {created_tables}",
         f"number_of_plots_created: {created_plots}",
@@ -3933,6 +4548,9 @@ def write_final_summary_and_manifest(
         "step8_situational_charts_include_win_tie_loss_rates: True",
         "step8_hold_to_terminal_strongest_overall: True",
         "step8_preferred_dqn_beats_naive_active_liquidation_benchmarks_on_test: True",
+        "step9_cross_sectional_heterogeneity_extended: volatility_bucket; gain_at_episode_start_bucket; days_until_tax_transition_at_start_bucket",
+        "step9_corrected_eaat_ta_eaat_sharpe_diagnostics_added: True",
+        "step9_sector_industry_analysis_attempted: False",
         f"train_all_behavior_diagnostics_completed: True; train_rollout_generated_this_run={train_generated}",
         "skipped_optional_analyses: " + ("; ".join(skipped_optional) if skipped_optional else "none"),
         "step_12_writing_implemented: False",
@@ -4064,11 +4682,11 @@ def main() -> None:
         registry,
     )
     build_step8(baseline_episode, baseline_step, output_dir, plots_dir, registry)
-    build_step9(baseline_episode, baseline_step, output_dir, plots_dir, registry)
+    build_step9(baseline_episode, baseline_step, output_dir, plots_dir, registry, config)
     build_step10(baseline_episode, output_dir, plots_dir, registry)
     build_step11(baseline_episode, baseline_step, output_dir, plots_dir, registry)
     skipped_optional = [
-        "sector grouping skipped because baseline artifacts do not include a sector column",
+        "sector and industry analysis intentionally skipped for Step 9; sector analysis is out of scope for this task",
         "train/all benchmark excess values left as NA except validation/test, avoiding extra benchmark reruns",
     ]
     write_final_summary_and_manifest(

@@ -1,9 +1,9 @@
 Quantitative Analysis Phase 4-11 Summary
 script_run: python scripts/build_quant_analysis_phase_4_11.py --config configs/train_reward_c_lite_v5.yaml
-source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_policy_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_eaat_sharpe_metrics_notes.txt
+source_files_used: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_step_rollouts.csv; runs/train_reward_c_lite_v5_full/baselines/baseline_summary_by_policy.csv; runs/train_reward_c_lite_v5_full/episode_splits.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_policy_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_episode_eaat_sharpe_metrics.csv; runs/train_reward_c_lite_v5_full/quant_analysis/step3b_eaat_sharpe_metrics_notes.txt; data/episodes/drl_episodes.parquet
 output_directory: runs/train_reward_c_lite_v5_full/quant_analysis
 number_of_tables_created: 28
-number_of_plots_created: 68
+number_of_plots_created: 72
 preferred_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
 best_validation_policy_by_mean_final_after_tax_value: hold_to_terminal
 best_test_policy_by_mean_final_after_tax_value: hold_to_terminal
@@ -37,6 +37,9 @@ step8_situational_group_charts_split_by_ex_ante_group: True
 step8_situational_charts_include_win_tie_loss_rates: True
 step8_hold_to_terminal_strongest_overall: True
 step8_preferred_dqn_beats_naive_active_liquidation_benchmarks_on_test: True
+step9_cross_sectional_heterogeneity_extended: volatility_bucket; gain_at_episode_start_bucket; days_until_tax_transition_at_start_bucket
+step9_corrected_eaat_ta_eaat_sharpe_diagnostics_added: True
+step9_sector_industry_analysis_attempted: False
 train_all_behavior_diagnostics_completed: True; train_rollout_generated_this_run=False
-skipped_optional_analyses: sector grouping skipped because baseline artifacts do not include a sector column; train/all benchmark excess values left as NA except validation/test, avoiding extra benchmark reruns
+skipped_optional_analyses: sector and industry analysis intentionally skipped for Step 9; sector analysis is out of scope for this task; train/all benchmark excess values left as NA except validation/test, avoiding extra benchmark reruns
 step_12_writing_implemented: False

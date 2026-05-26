@@ -1,0 +1,72 @@
+[
+  {
+    "description": "Reusable ticker sector metadata cache.",
+    "path": "data/metadata/ticker_sector_metadata.csv",
+    "type": "csv"
+  },
+  {
+    "description": "Ticker sector metadata notes.",
+    "path": "data/metadata/ticker_sector_metadata_notes.txt",
+    "type": "txt"
+  },
+  {
+    "description": "Sector-level preferred policy versus benchmark diagnostics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/sector_policy_performance.csv",
+    "type": "csv"
+  },
+  {
+    "description": "Sector-level preferred policy versus benchmark diagnostics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/sector_policy_performance.md",
+    "type": "md"
+  },
+  {
+    "description": "Sector-industry preferred policy versus benchmark diagnostics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/sector_industry_policy_performance.csv",
+    "type": "csv"
+  },
+  {
+    "description": "Sector-industry preferred policy versus benchmark diagnostics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/sector_industry_policy_performance.md",
+    "type": "md"
+  },
+  {
+    "description": "Preferred minus hold mean final after-tax value by sector for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/plots/sector_preferred_minus_hold_test.png",
+    "type": "png"
+  },
+  {
+    "description": "Preferred win rate versus hold_to_terminal by sector for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/plots/sector_preferred_win_rate_vs_hold_test.png",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy no-cut episode share by sector for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/plots/sector_no_cut_pct_test.png",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy short-term sold fraction by sector for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/plots/sector_short_term_sold_fraction_test.png",
+    "type": "png"
+  },
+  {
+    "description": "Preferred and hold_to_terminal median EAAT Sharpe by sector for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/plots/sector_median_eaat_sharpe_test.png",
+    "type": "png"
+  },
+  {
+    "description": "Preferred and hold_to_terminal median TA-EAAT Sharpe by sector for test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/plots/sector_median_ta_eaat_sharpe_test.png",
+    "type": "png"
+  },
+  {
+    "description": "Sector analysis notes and provenance.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/sector_analysis_notes.txt",
+    "type": "txt"
+  },
+  {
+    "description": "Sector analysis manifest.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/sector_analysis/sector_analysis_manifest.json",
+    "type": "json"
+  }
+]
