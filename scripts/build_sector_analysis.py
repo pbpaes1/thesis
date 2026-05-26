@@ -101,12 +101,14 @@ REQUIRED_OUTPUT_COLUMNS = [
     "hold_to_terminal_median_TA_EAAT_Sharpe",
     "sell_immediately_median_TA_EAAT_Sharpe",
     "sell_half_then_hold_median_TA_EAAT_Sharpe",
-    "preferred_minus_hold_mean_EAAT_Sharpe",
     "preferred_minus_hold_median_EAAT_Sharpe",
     "preferred_EAAT_Sharpe_win_rate_vs_hold",
-    "preferred_minus_hold_mean_TA_EAAT_Sharpe",
     "preferred_minus_hold_median_TA_EAAT_Sharpe",
     "preferred_TA_EAAT_Sharpe_win_rate_vs_hold",
+    "preferred_minus_sell_immediately_median_EAAT_Sharpe",
+    "preferred_minus_sell_half_median_EAAT_Sharpe",
+    "preferred_minus_sell_immediately_median_TA_EAAT_Sharpe",
+    "preferred_minus_sell_half_median_TA_EAAT_Sharpe",
 ]
 
 
@@ -544,7 +546,11 @@ def group_metrics(group: pd.DataFrame, *, split: str, sector: str, industry: str
     pref_minus_sell = group["preferred_value"] - group["sell_immediately_value"]
     pref_minus_half = group["preferred_value"] - group["sell_half_then_hold_value"]
     pref_minus_hold_eaat = group["preferred_EAAT_Sharpe"] - group["hold_to_terminal_EAAT_Sharpe"]
+    pref_minus_sell_eaat = group["preferred_EAAT_Sharpe"] - group["sell_immediately_EAAT_Sharpe"]
+    pref_minus_half_eaat = group["preferred_EAAT_Sharpe"] - group["sell_half_then_hold_EAAT_Sharpe"]
     pref_minus_hold_ta = group["preferred_TA_EAAT_Sharpe"] - group["hold_to_terminal_TA_EAAT_Sharpe"]
+    pref_minus_sell_ta = group["preferred_TA_EAAT_Sharpe"] - group["sell_immediately_TA_EAAT_Sharpe"]
+    pref_minus_half_ta = group["preferred_TA_EAAT_Sharpe"] - group["sell_half_then_hold_TA_EAAT_Sharpe"]
     row: dict[str, Any] = {
         "split": split,
         "sector": sector,
@@ -577,12 +583,14 @@ def group_metrics(group: pd.DataFrame, *, split: str, sector: str, industry: str
         "hold_to_terminal_median_TA_EAAT_Sharpe": safe_median(group["hold_to_terminal_TA_EAAT_Sharpe"]),
         "sell_immediately_median_TA_EAAT_Sharpe": safe_median(group["sell_immediately_TA_EAAT_Sharpe"]),
         "sell_half_then_hold_median_TA_EAAT_Sharpe": safe_median(group["sell_half_then_hold_TA_EAAT_Sharpe"]),
-        "preferred_minus_hold_mean_EAAT_Sharpe": safe_mean(pref_minus_hold_eaat),
         "preferred_minus_hold_median_EAAT_Sharpe": safe_median(pref_minus_hold_eaat),
         "preferred_EAAT_Sharpe_win_rate_vs_hold": safe_win_rate(pref_minus_hold_eaat),
-        "preferred_minus_hold_mean_TA_EAAT_Sharpe": safe_mean(pref_minus_hold_ta),
         "preferred_minus_hold_median_TA_EAAT_Sharpe": safe_median(pref_minus_hold_ta),
         "preferred_TA_EAAT_Sharpe_win_rate_vs_hold": safe_win_rate(pref_minus_hold_ta),
+        "preferred_minus_sell_immediately_median_EAAT_Sharpe": safe_median(pref_minus_sell_eaat),
+        "preferred_minus_sell_half_median_EAAT_Sharpe": safe_median(pref_minus_half_eaat),
+        "preferred_minus_sell_immediately_median_TA_EAAT_Sharpe": safe_median(pref_minus_sell_ta),
+        "preferred_minus_sell_half_median_TA_EAAT_Sharpe": safe_median(pref_minus_half_ta),
     }
     if industry is not None:
         row = {"split": split, "sector": sector, "industry": industry, **{k: v for k, v in row.items() if k not in {"split", "sector"}}}
@@ -720,6 +728,7 @@ def write_notes(
         "sector_analysis_scope: diagnostic interpretation only.",
         "final_after_tax_value_primary_metric: True",
         "EAAT_and_TA_EAAT_Sharpe_secondary_risk_adjusted_diagnostics: True",
+        "Sharpe_difference_diagnostics_use_medians_not_means: True",
         "policy_selection_changed_based_on_sector_results: False",
         f"preferred_policy: {PREFERRED_POLICY}",
         "benchmarks: hold_to_terminal; sell_immediately; sell_half_then_hold",

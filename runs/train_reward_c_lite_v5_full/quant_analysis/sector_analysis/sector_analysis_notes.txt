@@ -11,6 +11,7 @@ industry_min_episodes_per_group: 20
 sector_analysis_scope: diagnostic interpretation only.
 final_after_tax_value_primary_metric: True
 EAAT_and_TA_EAAT_Sharpe_secondary_risk_adjusted_diagnostics: True
+Sharpe_difference_diagnostics_use_medians_not_means: True
 policy_selection_changed_based_on_sector_results: False
 preferred_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
 benchmarks: hold_to_terminal; sell_immediately; sell_half_then_hold
