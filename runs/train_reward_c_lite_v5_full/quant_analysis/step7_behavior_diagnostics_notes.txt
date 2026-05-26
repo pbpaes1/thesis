@@ -1,0 +1,9 @@
+Step 7 behavior diagnostics notes
+Step 7 tests whether the preferred DQN is behaviorally different from random and from mechanical hold-to-terminal.
+The preferred policy is trained_dqn_first_sale_margin_0p070_normal_0p020.
+Train and all-episode diagnostics are descriptive and include in-sample observations.
+Validation and test are the out-of-sample behavior checks.
+Final after-tax value remains the primary thesis metric.
+EAAT / TA-EAAT Sharpe metrics are secondary risk-adjusted diagnostics.
+Economic-period splits are heterogeneity diagnostics only and must not be used to reselect thresholds.
+The 0.070 policy remains preferred because it balances active behavior with reduced premature selling; 0.080 and 0.090 are more hold-like sensitivity policies.

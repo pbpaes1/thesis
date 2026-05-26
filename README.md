@@ -514,6 +514,59 @@ Main Step 5 outputs:
 - `quant_analysis/step5_first_sale_margin_sensitivity.md`
 - `quant_analysis/step5_interpretation_notes.txt`
 
+Step 6 is the tax-efficiency analysis for the final policy universe. It combines
+short-term vs long-term realization behavior, tax paid, effective tax rates,
+after-tax loss versus pre-tax value, and corrected EAAT / TA-EAAT Sharpe
+diagnostics. Final after-tax value remains the primary thesis metric; EAAT and
+TA-EAAT are secondary risk-adjusted diagnostics. The Step 6 Markdown starts with
+a compact corrected-Sharpe preview table so the key columns remain visible in
+Markdown preview panes.
+
+Main Step 6 outputs:
+- `quant_analysis/step6_tax_efficiency_analysis.md`
+- `quant_analysis/step6_tax_efficiency_notes.txt`
+- `quant_analysis/plots/step6_short_vs_long_term_sold_fraction_validation.png`
+- `quant_analysis/plots/step6_short_vs_long_term_sold_fraction_test.png`
+- `quant_analysis/plots/step6_median_eaat_and_ta_eaat_sharpe_test.png`
+
+Step 7 is the preferred-policy behavior diagnostic block for
+`trained_dqn_first_sale_margin_0p070_normal_0p020`. It preserves the split-level
+behavior diagnostics and adds corrected EAAT / TA-EAAT Sharpe columns for
+validation and test, leaving train and all-episode Sharpe fields blank because
+those corrected metrics are only available for out-of-sample splits. Step 7 also
+adds economic-period heterogeneity diagnostics. Train and all-episode rows are
+descriptive, while validation and test remain the out-of-sample behavior checks.
+Economic-period diagnostics are not used to reselect the preferred threshold.
+
+Economic periods are assigned from the first available preferred-policy rollout
+date per episode:
+- `2010-2012`: `post_crisis_early_recovery`
+- `2013-2016`: `qe_bull_market`
+- `2017-2019`: `late_cycle_volatility_return`
+- `2020-2021`: `covid_stimulus`
+- `2022-2024`: `inflation_tightening`
+- outside the defined range: `unknown_or_outside_defined_period`
+
+In the current frozen run, the unknown/outside period corresponds to 2025 test
+episodes. All-episode economic-period plots are generated in addition to the
+test-period plots.
+
+Main Step 7 outputs:
+- `quant_analysis/step7_preferred_policy_behavior_by_split.md`
+- `quant_analysis/step7_preferred_policy_behavior_summary.md`
+- `quant_analysis/step7_preferred_policy_behavior_by_economic_period.md`
+- `quant_analysis/step7_behavior_diagnostics_notes.txt`
+- `quant_analysis/plots/step7_action_distribution_test.png`
+- `quant_analysis/plots/step7_action_distribution_by_split.png`
+- `quant_analysis/plots/step7_no_cut_pct_by_economic_period_test.png`
+- `quant_analysis/plots/step7_no_cut_pct_by_economic_period_all.png`
+- `quant_analysis/plots/step7_discretionary_sale_pct_by_economic_period_test.png`
+- `quant_analysis/plots/step7_discretionary_sale_pct_by_economic_period_all.png`
+- `quant_analysis/plots/step7_short_term_sold_fraction_by_economic_period_test.png`
+- `quant_analysis/plots/step7_short_term_sold_fraction_by_economic_period_all.png`
+- `quant_analysis/plots/step7_average_days_to_first_sale_by_economic_period_test.png`
+- `quant_analysis/plots/step7_average_days_to_first_sale_by_economic_period_all.png`
+
 Legacy Step 4B risk-adjusted diagnostics were removed from the final workflow
 and manifest. Those files used risk-free rate `0`, no annualization, and
 reward/step-return proxy Sharpe calculations, so they are not final thesis

@@ -231,6 +231,57 @@ STEP6_REQUIRED_TAX_ACCOUNTING_COLUMNS = [
     "mean_tax_paid_difference_vs_hold_to_terminal",
     "mean_tax_paid_difference_vs_sell_immediately",
 ]
+STEP7_EAAT_SHARPE_COLUMNS = [
+    "num_valid_EAAT_Sharpe_episodes",
+    "median_EAAT_Sharpe",
+    "pct_positive_EAAT_Sharpe",
+    "median_EAAT_annualized_after_tax_return",
+    "median_EAAT_annualized_volatility",
+    "num_valid_TA_EAAT_Sharpe_episodes",
+    "median_TA_EAAT_Sharpe",
+    "pct_positive_TA_EAAT_Sharpe",
+    "median_TA_EAAT_annualized_after_tax_return",
+    "median_TA_EAAT_annualized_volatility",
+]
+STEP7_FORBIDDEN_LEGACY_SHARPE_COLUMNS = STEP6_FORBIDDEN_LEGACY_SHARPE_COLUMNS
+STEP7_REQUIRED_BEHAVIOR_COLUMNS = [
+    "split",
+    "diagnostic_scope",
+    "num_episodes",
+    "action_distribution",
+    "first_action_distribution",
+    "first_discretionary_sale_action_distribution",
+    "first_sale_timing_distribution",
+    "no_cut_episode_count",
+    "no_cut_episode_pct",
+    "discretionary_sale_episode_count",
+    "discretionary_sale_episode_pct",
+    "partial_discretionary_liquidation_pct",
+    "full_early_liquidation_pct",
+    "terminal_liquidation_frequency",
+    "mean_num_discretionary_sales",
+    "average_days_to_first_sale",
+    "median_days_to_first_sale",
+    "pct_episodes_with_first_sale_before_tax_transition",
+    "mean_pct_position_sold_short_term",
+    "mean_pct_position_sold_long_term",
+    "mean_total_tax_paid",
+    "mean_effective_tax_rate",
+    "mean_final_after_tax_total_value",
+]
+STEP7_ECONOMIC_PERIODS = [
+    "post_crisis_early_recovery",
+    "qe_bull_market",
+    "late_cycle_volatility_return",
+    "covid_stimulus",
+    "inflation_tightening",
+    "unknown_or_outside_defined_period",
+]
+STEP7_PAIR_BENCHMARKS = [
+    "hold_to_terminal",
+    "sell_immediately",
+    "sell_half_then_hold",
+]
 STEP4_EAAT_NOTE_REQUIRED_PHRASES = [
     "EAAT Sharpe uses terminal after-tax wealth",
     "TA-EAAT Sharpe uses sale-level tranches",
@@ -1741,6 +1792,75 @@ def first_sale_timing_distribution(episode_split: pd.DataFrame) -> dict[str, flo
     )
 
 
+def diagnostic_scope_for_split(split: str) -> str:
+    if split == "train":
+        return "in_sample_descriptive"
+    if split == "all":
+        return "all_episode_descriptive"
+    return "out_of_sample"
+
+
+def step7_behavior_metric_row(
+    split_episode: pd.DataFrame,
+    split_step: pd.DataFrame,
+    *,
+    split: str,
+    diagnostic_scope: str,
+    extra_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    split_episode = split_episode.copy()
+    split_episode["no_cut_episode"] = ~split_episode["episode_cut_occurred"]
+    discretionary = split_episode["num_discretionary_sales"].fillna(0).gt(0)
+    partial = discretionary & split_episode["terminal_liquidation_fraction"].fillna(0).gt(0)
+    full_early = discretionary & split_episode["terminal_liquidation_fraction"].fillna(0).eq(0)
+    row: dict[str, Any] = {
+        "split": split,
+        "diagnostic_scope": diagnostic_scope,
+        "num_episodes": int(split_episode["episode_id"].nunique()),
+        "action_distribution": compact_json(action_distribution(split_step)),
+        "first_action_distribution": compact_json(first_action_distribution(split_step)),
+        "first_discretionary_sale_action_distribution": compact_json(
+            first_sale_action_distribution(split_step)
+        ),
+        "first_sale_timing_distribution": compact_json(
+            first_sale_timing_distribution(split_episode)
+        ),
+        "no_cut_episode_count": int(split_episode["no_cut_episode"].sum()),
+        "no_cut_episode_pct": float(split_episode["no_cut_episode"].mean()),
+        "discretionary_sale_episode_count": int(discretionary.sum()),
+        "discretionary_sale_episode_pct": float(discretionary.mean()),
+        "partial_discretionary_liquidation_pct": float(partial.mean()),
+        "full_early_liquidation_pct": float(full_early.mean()),
+        "terminal_liquidation_frequency": float(
+            split_episode["episode_terminal_liquidation_executed"].mean()
+        ),
+        "mean_num_discretionary_sales": float(
+            split_episode["num_discretionary_sales"].mean()
+        ),
+        "average_days_to_first_sale": float(split_episode["days_to_first_sale"].mean()),
+        "median_days_to_first_sale": float(split_episode["days_to_first_sale"].median()),
+        "pct_episodes_with_first_sale_before_tax_transition": float(
+            split_episode["first_sale_before_tax_transition"].mean()
+        ),
+        "mean_pct_position_sold_short_term": float(
+            split_episode["pct_episode_position_sold_short_term"].mean()
+        ),
+        "mean_pct_position_sold_long_term": float(
+            split_episode["pct_episode_position_sold_long_term"].mean()
+        ),
+        "mean_total_tax_paid": float(split_episode["total_tax_paid"].mean()),
+        "mean_effective_tax_rate": float(
+            split_episode["mean_effective_tax_rate_on_sales"].mean()
+        ),
+        "mean_final_after_tax_total_value": float(
+            split_episode["episode_final_after_tax_total_value"].mean()
+        ),
+    }
+    if extra_fields:
+        row.update(extra_fields)
+    return row
+
+
 def behavior_summary_rows(
     episode_df: pd.DataFrame,
     step_df: pd.DataFrame,
@@ -1753,10 +1873,6 @@ def behavior_summary_rows(
     for split in DIAGNOSTIC_SPLITS:
         split_episode = episode_df[episode_df["split"].eq(split)].copy()
         split_step = step_df[step_df["split"].eq(split)].copy()
-        split_episode["no_cut_episode"] = ~split_episode["episode_cut_occurred"]
-        discretionary = split_episode["num_discretionary_sales"].fillna(0).gt(0)
-        partial = discretionary & split_episode["terminal_liquidation_fraction"].fillna(0).gt(0)
-        full_early = discretionary & split_episode["terminal_liquidation_fraction"].fillna(0).eq(0)
         final_mean = split_episode["episode_final_after_tax_total_value"].mean()
         excess_hold = np.nan
         excess_sell = np.nan
@@ -1764,63 +1880,318 @@ def behavior_summary_rows(
             excess_hold = final_mean - float(baseline_vt.loc[split, "hold_to_terminal"])
             excess_sell = final_mean - float(baseline_vt.loc[split, "sell_immediately"])
         rows.append(
-            {
-                "split": split,
-                "diagnostic_scope": (
-                    "in_sample_descriptive"
-                    if split == "train"
-                    else "all_episode_descriptive"
-                    if split == "all"
-                    else "out_of_sample"
-                ),
-                "num_episodes": int(split_episode["episode_id"].nunique()),
-                "action_distribution": compact_json(action_distribution(split_step)),
-                "first_action_distribution": compact_json(
-                    first_action_distribution(split_step)
-                ),
-                "first_discretionary_sale_action_distribution": compact_json(
-                    first_sale_action_distribution(split_step)
-                ),
-                "first_sale_timing_distribution": compact_json(
-                    first_sale_timing_distribution(split_episode)
-                ),
-                "no_cut_episode_count": int(split_episode["no_cut_episode"].sum()),
-                "no_cut_episode_pct": float(split_episode["no_cut_episode"].mean()),
-                "discretionary_sale_episode_count": int(discretionary.sum()),
-                "discretionary_sale_episode_pct": float(discretionary.mean()),
-                "partial_discretionary_liquidation_pct": float(partial.mean()),
-                "full_early_liquidation_pct": float(full_early.mean()),
-                "terminal_liquidation_frequency": float(
-                    split_episode["episode_terminal_liquidation_executed"].mean()
-                ),
-                "mean_num_discretionary_sales": float(
-                    split_episode["num_discretionary_sales"].mean()
-                ),
-                "average_days_to_first_sale": float(
-                    split_episode["days_to_first_sale"].mean()
-                ),
-                "median_days_to_first_sale": float(
-                    split_episode["days_to_first_sale"].median()
-                ),
-                "pct_episodes_with_first_sale_before_tax_transition": float(
-                    split_episode["first_sale_before_tax_transition"].mean()
-                ),
-                "mean_pct_position_sold_short_term": float(
-                    split_episode["pct_episode_position_sold_short_term"].mean()
-                ),
-                "mean_pct_position_sold_long_term": float(
-                    split_episode["pct_episode_position_sold_long_term"].mean()
-                ),
-                "mean_total_tax_paid": float(split_episode["total_tax_paid"].mean()),
-                "mean_effective_tax_rate": float(
-                    split_episode["mean_effective_tax_rate_on_sales"].mean()
-                ),
-                "mean_final_after_tax_total_value": float(final_mean),
-                "mean_excess_value_vs_hold_to_terminal": excess_hold,
-                "mean_excess_value_vs_sell_immediately": excess_sell,
-            }
+            step7_behavior_metric_row(
+                split_episode,
+                split_step,
+                split=split,
+                diagnostic_scope=diagnostic_scope_for_split(split),
+                extra_fields={
+                    "mean_excess_value_vs_hold_to_terminal": excess_hold,
+                    "mean_excess_value_vs_sell_immediately": excess_sell,
+                },
+            )
         )
     return pd.DataFrame(rows)
+
+
+def economic_period_from_year(year: Any) -> str:
+    if pd.isna(year):
+        return "unknown_or_outside_defined_period"
+    year_int = int(year)
+    if 2010 <= year_int <= 2012:
+        return "post_crisis_early_recovery"
+    if 2013 <= year_int <= 2016:
+        return "qe_bull_market"
+    if 2017 <= year_int <= 2019:
+        return "late_cycle_volatility_return"
+    if 2020 <= year_int <= 2021:
+        return "covid_stimulus"
+    if 2022 <= year_int <= 2024:
+        return "inflation_tightening"
+    return "unknown_or_outside_defined_period"
+
+
+def add_economic_period_columns(
+    episode_df: pd.DataFrame,
+    step_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    step_out = step_df.copy()
+    step_out["date"] = pd.to_datetime(step_out["date"], errors="coerce")
+    first_dates = (
+        step_out.sort_values(["split", "episode_id", "step_in_episode"])
+        .groupby(["split", "episode_id"], as_index=False)
+        .agg(episode_start_date=("date", "first"))
+    )
+    first_dates["calendar_year"] = first_dates["episode_start_date"].dt.year
+    first_dates["economic_period"] = first_dates["calendar_year"].map(
+        economic_period_from_year
+    )
+    episode_out = episode_df.merge(
+        first_dates[
+            ["split", "episode_id", "episode_start_date", "calendar_year", "economic_period"]
+        ],
+        on=["split", "episode_id"],
+        how="left",
+        validate="many_to_one",
+    )
+    episode_out["economic_period"] = episode_out["economic_period"].fillna(
+        "unknown_or_outside_defined_period"
+    )
+    step_out = step_out.merge(
+        first_dates[["split", "episode_id", "calendar_year", "economic_period"]],
+        on=["split", "episode_id"],
+        how="left",
+        validate="many_to_one",
+    )
+    step_out["economic_period"] = step_out["economic_period"].fillna(
+        "unknown_or_outside_defined_period"
+    )
+    return episode_out, step_out
+
+
+def paired_benchmark_diagnostics(
+    preferred_episode: pd.DataFrame,
+    baseline_episode: pd.DataFrame,
+    *,
+    split: str,
+) -> dict[str, float]:
+    diagnostics: dict[str, float] = {}
+    preferred_values = preferred_episode[
+        ["episode_id", "episode_final_after_tax_total_value"]
+    ].rename(columns={"episode_final_after_tax_total_value": "preferred_value"})
+    for benchmark in STEP7_PAIR_BENCHMARKS:
+        suffix = benchmark
+        diagnostics[f"mean_excess_value_vs_{suffix}"] = np.nan
+        diagnostics[f"win_rate_vs_{suffix}"] = np.nan
+        benchmark_values = baseline_episode[
+            baseline_episode["split"].eq(split)
+            & baseline_episode["policy_name"].eq(benchmark)
+            & baseline_episode["episode_id"].isin(preferred_values["episode_id"])
+        ][["episode_id", "episode_final_after_tax_total_value"]].rename(
+            columns={"episode_final_after_tax_total_value": "benchmark_value"}
+        )
+        if benchmark_values.empty:
+            continue
+        paired = preferred_values.merge(
+            benchmark_values,
+            on="episode_id",
+            how="inner",
+            validate="one_to_one",
+        )
+        if paired.empty:
+            continue
+        diagnostics[f"mean_excess_value_vs_{suffix}"] = (
+            float(paired["preferred_value"].mean())
+            - float(paired["benchmark_value"].mean())
+        )
+        diagnostics[f"win_rate_vs_{suffix}"] = float(
+            paired["preferred_value"].gt(paired["benchmark_value"]).mean()
+        )
+    return diagnostics
+
+
+def build_step7_economic_period_behavior(
+    diag_episode: pd.DataFrame,
+    diag_step: pd.DataFrame,
+    baseline_episode: pd.DataFrame,
+) -> pd.DataFrame:
+    econ_episode, econ_step = add_economic_period_columns(diag_episode, diag_step)
+    if econ_episode["economic_period"].isna().all() or econ_episode[
+        "economic_period"
+    ].eq("unknown_or_outside_defined_period").all():
+        raise ValueError("Step 7 economic_period is missing or unknown for every row.")
+
+    rows: list[dict[str, Any]] = []
+    for split in DIAGNOSTIC_SPLITS:
+        split_episode = econ_episode[econ_episode["split"].eq(split)].copy()
+        split_step = econ_step[econ_step["split"].eq(split)].copy()
+        for period in STEP7_ECONOMIC_PERIODS:
+            period_episode = split_episode[split_episode["economic_period"].eq(period)].copy()
+            if period_episode.empty:
+                continue
+            period_step = split_step[split_step["economic_period"].eq(period)].copy()
+            paired = {
+                f"{metric}_vs_{benchmark}": np.nan
+                for benchmark in STEP7_PAIR_BENCHMARKS
+                for metric in ["mean_excess_value", "win_rate"]
+            }
+            if split in VALIDATION_TEST_SPLITS:
+                paired = paired_benchmark_diagnostics(
+                    period_episode,
+                    baseline_episode,
+                    split=split,
+                )
+            rows.append(
+                step7_behavior_metric_row(
+                    period_episode,
+                    period_step,
+                    split=split,
+                    diagnostic_scope=diagnostic_scope_for_split(split),
+                    extra_fields={
+                        "economic_period": period,
+                        "calendar_year_min": int(period_episode["calendar_year"].min())
+                        if period_episode["calendar_year"].notna().any()
+                        else np.nan,
+                        "calendar_year_max": int(period_episode["calendar_year"].max())
+                        if period_episode["calendar_year"].notna().any()
+                        else np.nan,
+                        **paired,
+                    },
+                )
+            )
+    out = pd.DataFrame(rows)
+    ordered_columns = [
+        "split",
+        "diagnostic_scope",
+        "economic_period",
+        "calendar_year_min",
+        "calendar_year_max",
+        "num_episodes",
+        "action_distribution",
+        "first_action_distribution",
+        "first_discretionary_sale_action_distribution",
+        "first_sale_timing_distribution",
+        "no_cut_episode_count",
+        "no_cut_episode_pct",
+        "discretionary_sale_episode_count",
+        "discretionary_sale_episode_pct",
+        "partial_discretionary_liquidation_pct",
+        "full_early_liquidation_pct",
+        "terminal_liquidation_frequency",
+        "mean_num_discretionary_sales",
+        "average_days_to_first_sale",
+        "median_days_to_first_sale",
+        "pct_episodes_with_first_sale_before_tax_transition",
+        "mean_pct_position_sold_short_term",
+        "mean_pct_position_sold_long_term",
+        "mean_total_tax_paid",
+        "mean_effective_tax_rate",
+        "mean_final_after_tax_total_value",
+        "mean_excess_value_vs_hold_to_terminal",
+        "mean_excess_value_vs_sell_immediately",
+        "mean_excess_value_vs_sell_half_then_hold",
+        "win_rate_vs_hold_to_terminal",
+        "win_rate_vs_sell_immediately",
+        "win_rate_vs_sell_half_then_hold",
+    ]
+    return out[ordered_columns]
+
+
+def add_step7_corrected_sharpe_columns(
+    out: pd.DataFrame,
+    sharpe_df: pd.DataFrame,
+) -> pd.DataFrame:
+    require_columns(
+        sharpe_df,
+        ["split", "policy_name", *STEP7_EAAT_SHARPE_COLUMNS],
+        source=DEFAULT_OUTPUT_DIR / "step3b_policy_eaat_sharpe_metrics.csv",
+        step="Step 7 corrected EAAT/TA-EAAT merge",
+    )
+    preferred_sharpe = sharpe_df[
+        sharpe_df["policy_name"].eq(PREFERRED_POLICY)
+        & sharpe_df["split"].isin(VALIDATION_TEST_SPLITS)
+    ][["split", *STEP7_EAAT_SHARPE_COLUMNS]]
+    missing = sorted(set(VALIDATION_TEST_SPLITS) - set(preferred_sharpe["split"]))
+    if missing:
+        raise ValueError(
+            "Corrected Step 3B EAAT/TA-EAAT metrics are missing preferred-policy "
+            "Step 7 split(s): " + ", ".join(missing)
+        )
+    return out.merge(preferred_sharpe, on="split", how="left", validate="one_to_one")
+
+
+def validate_no_legacy_step7_metrics(columns: list[str]) -> None:
+    bad_columns = [
+        column for column in columns if column in STEP7_FORBIDDEN_LEGACY_SHARPE_COLUMNS
+    ]
+    if bad_columns:
+        raise ValueError(
+            "Step 7 output attempted to include forbidden legacy Sharpe column(s): "
+            + ", ".join(sorted(set(bad_columns)))
+        )
+
+
+def validate_step7_output(
+    out: pd.DataFrame,
+    *,
+    required_columns: list[str],
+    require_sharpe_columns: bool = False,
+    require_economic_period: bool = False,
+) -> None:
+    missing = [column for column in required_columns if column not in out.columns]
+    if require_sharpe_columns:
+        missing.extend(
+            column for column in STEP7_EAAT_SHARPE_COLUMNS if column not in out.columns
+        )
+    if missing:
+        raise ValueError("Step 7 output is missing required column(s): " + ", ".join(missing))
+    validate_no_legacy_step7_metrics(out.columns.tolist())
+    if require_economic_period:
+        if "economic_period" not in out.columns:
+            raise ValueError("Step 7 economic-period output is missing economic_period.")
+        if out["economic_period"].isna().all() or out["economic_period"].eq(
+            "unknown_or_outside_defined_period"
+        ).all():
+            raise ValueError("Step 7 economic_period is missing or unknown for every row.")
+    numeric = out.select_dtypes(include=[np.number])
+    if np.isinf(numeric.to_numpy()).any():
+        raise ValueError("Step 7 output contains infinite values after safe division.")
+
+
+def validate_step7_required_data(
+    diag_episode: pd.DataFrame,
+    diag_step: pd.DataFrame,
+) -> None:
+    if diag_episode.empty or diag_step.empty:
+        raise ValueError("Step 7 preferred-policy diagnostic data is empty.")
+    missing_splits = missing_split_policy_rows(
+        diag_episode,
+        policies=[PREFERRED_POLICY],
+        splits=["train", "validation", "test"],
+    )
+    if missing_splits:
+        raise ValueError(
+            "Step 7 preferred policy is missing from diagnostic episode data: "
+            + ", ".join(missing_splits)
+        )
+    required_episode_columns = [
+        "split",
+        "policy_name",
+        "episode_id",
+        "episode_cut_occurred",
+        "num_discretionary_sales",
+        "terminal_liquidation_fraction",
+        "episode_terminal_liquidation_executed",
+        "days_to_first_sale",
+        "first_sale_before_tax_transition",
+        "pct_episode_position_sold_short_term",
+        "pct_episode_position_sold_long_term",
+        "total_tax_paid",
+        "mean_effective_tax_rate_on_sales",
+        "episode_final_after_tax_total_value",
+    ]
+    required_step_columns = [
+        "split",
+        "policy_name",
+        "episode_id",
+        "step_in_episode",
+        "date",
+        "action_fraction_requested",
+        "action_fraction_executed",
+        "terminal_liquidation_executed",
+    ]
+    require_columns(
+        diag_episode,
+        required_episode_columns,
+        source=Path("Step 7 preferred-policy diagnostic episode frame"),
+        step="Step 7",
+    )
+    require_columns(
+        diag_step,
+        required_step_columns,
+        source=Path("Step 7 preferred-policy diagnostic step frame"),
+        step="Step 7",
+    )
 
 
 def normalized_progress_frame(step_df: pd.DataFrame, split: str) -> pd.DataFrame:
@@ -1882,7 +2253,22 @@ def build_step7(
         train_episode,
         train_step,
     )
+    validate_step7_required_data(diag_episode, diag_step)
+    sharpe_df = load_step3b_eaat_sharpe_metrics(
+        config=config,
+        run_path=run_path,
+        output_dir=output_dir,
+    )
     behavior_by_split = behavior_summary_rows(diag_episode, diag_step, baseline_summary)
+    behavior_by_split = add_step7_corrected_sharpe_columns(
+        behavior_by_split,
+        sharpe_df,
+    )
+    validate_step7_output(
+        behavior_by_split,
+        required_columns=STEP7_REQUIRED_BEHAVIOR_COLUMNS,
+        require_sharpe_columns=True,
+    )
     save_table(
         behavior_by_split,
         output_dir / "step7_preferred_policy_behavior_by_split.csv",
@@ -1892,6 +2278,11 @@ def build_step7(
         "Preferred policy behavior diagnostics by train, validation, test, and all episodes.",
     )
     behavior_summary = behavior_by_split.copy()
+    validate_step7_output(
+        behavior_summary,
+        required_columns=STEP7_REQUIRED_BEHAVIOR_COLUMNS,
+        require_sharpe_columns=True,
+    )
     save_table(
         behavior_summary,
         output_dir / "step7_preferred_policy_behavior_summary.csv",
@@ -1899,6 +2290,57 @@ def build_step7(
         registry,
         "7",
         "Preferred policy behavior summary including descriptive diagnostic scope labels.",
+    )
+
+    behavior_by_economic_period = build_step7_economic_period_behavior(
+        diag_episode,
+        diag_step,
+        baseline_episode,
+    )
+    validate_step7_output(
+        behavior_by_economic_period,
+        required_columns=[
+            *STEP7_REQUIRED_BEHAVIOR_COLUMNS,
+            "economic_period",
+            "calendar_year_min",
+            "calendar_year_max",
+            "mean_excess_value_vs_hold_to_terminal",
+            "mean_excess_value_vs_sell_immediately",
+            "mean_excess_value_vs_sell_half_then_hold",
+            "win_rate_vs_hold_to_terminal",
+            "win_rate_vs_sell_immediately",
+            "win_rate_vs_sell_half_then_hold",
+        ],
+        require_economic_period=True,
+    )
+    save_table(
+        behavior_by_economic_period,
+        output_dir / "step7_preferred_policy_behavior_by_economic_period.csv",
+        output_dir / "step7_preferred_policy_behavior_by_economic_period.md",
+        registry,
+        "7",
+        "Preferred policy behavior diagnostics by split and economic period.",
+    )
+    notes = "\n".join(
+        [
+            "Step 7 behavior diagnostics notes",
+            "Step 7 tests whether the preferred DQN is behaviorally different from random and from mechanical hold-to-terminal.",
+            f"The preferred policy is {PREFERRED_POLICY}.",
+            "Train and all-episode diagnostics are descriptive and include in-sample observations.",
+            "Validation and test are the out-of-sample behavior checks.",
+            "Final after-tax value remains the primary thesis metric.",
+            "EAAT / TA-EAAT Sharpe metrics are secondary risk-adjusted diagnostics.",
+            "Economic-period splits are heterogeneity diagnostics only and must not be used to reselect thresholds.",
+            "The 0.070 policy remains preferred because it balances active behavior with reduced premature selling; 0.080 and 0.090 are more hold-like sensitivity policies.",
+            "",
+        ]
+    )
+    save_text(
+        notes,
+        output_dir / "step7_behavior_diagnostics_notes.txt",
+        registry,
+        "7",
+        "Preferred policy Step 7 behavior diagnostic interpretation notes.",
     )
 
     test_step = diag_step[diag_step["split"].eq("test")]
@@ -1993,6 +2435,53 @@ def build_step7(
         plt.title(ylabel + " by split")
         plt.grid(axis="y", alpha=0.25)
         save_plot(plots_dir / filename, registry, "7", f"Preferred policy {ylabel} by split.")
+
+    for plot_split in ["test", "all"]:
+        split_economic = behavior_by_economic_period[
+            behavior_by_economic_period["split"].eq(plot_split)
+        ].copy()
+        if split_economic.empty:
+            raise ValueError(
+                f"Step 7 economic-period {plot_split} table is empty."
+            )
+        for column, filename_stem, ylabel in [
+            (
+                "no_cut_episode_pct",
+                "step7_no_cut_pct_by_economic_period",
+                "no-cut episode pct",
+            ),
+            (
+                "discretionary_sale_episode_pct",
+                "step7_discretionary_sale_pct_by_economic_period",
+                "discretionary sale episode pct",
+            ),
+            (
+                "mean_pct_position_sold_short_term",
+                "step7_short_term_sold_fraction_by_economic_period",
+                "mean short-term sold fraction",
+            ),
+            (
+                "average_days_to_first_sale",
+                "step7_average_days_to_first_sale_by_economic_period",
+                "average days to first sale",
+            ),
+        ]:
+            plt.figure(figsize=(9, 4.8))
+            plt.bar(
+                split_economic["economic_period"],
+                split_economic[column],
+                color="#3b6ea8",
+            )
+            plt.ylabel(ylabel)
+            plt.title(f"{ylabel} by economic period - {plot_split}")
+            plt.xticks(rotation=35, ha="right")
+            plt.grid(axis="y", alpha=0.25)
+            save_plot(
+                plots_dir / f"{filename_stem}_{plot_split}.png",
+                registry,
+                "7",
+                f"Preferred policy {plot_split} {ylabel} by economic period.",
+            )
 
     return diag_episode, diag_step, train_generated
 
@@ -2731,6 +3220,11 @@ def write_final_summary_and_manifest(
         "step4_legacy_step4b_outputs_regenerated: False",
         f"step4_preferred_policy_remains: {PREFERRED_POLICY}",
         "step4_scope_note: hold_to_terminal may remain the best absolute final-value benchmark, but Step 4 is about DQN decision-rule improvement.",
+        "step7_corrected_eaat_ta_eaat_columns_added: True",
+        "step7_economic_period_behavior_completed: True",
+        "step7_economic_period_all_episode_plots_completed: True",
+        "step7_train_all_descriptive_only: True",
+        "step7_validation_test_out_of_sample_behavior_checks: True",
         f"train_all_behavior_diagnostics_completed: True; train_rollout_generated_this_run={train_generated}",
         "skipped_optional_analyses: " + ("; ".join(skipped_optional) if skipped_optional else "none"),
         "step_12_writing_implemented: False",
