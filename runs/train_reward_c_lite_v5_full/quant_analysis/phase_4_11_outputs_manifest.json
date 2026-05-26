@@ -126,6 +126,12 @@
     "type": "png"
   },
   {
+    "description": "Grouped median EAAT and TA-EAAT Sharpe by policy for the test split.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step6_median_eaat_and_ta_eaat_sharpe_test.png",
+    "step": "6",
+    "type": "png"
+  },
+  {
     "description": "Mean tax paid by policy for test split.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step6_mean_tax_paid_by_policy_test.png",
     "step": "6",

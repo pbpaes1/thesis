@@ -146,6 +146,20 @@ STEP4_EAAT_SHARPE_COLUMNS = [
     "median_TA_EAAT_annualized_after_tax_return",
     "median_TA_EAAT_annualized_volatility",
 ]
+STEP6_EAAT_SHARPE_COLUMNS = [
+    "num_valid_EAAT_Sharpe_episodes",
+    "median_EAAT_Sharpe",
+    "pct_positive_EAAT_Sharpe",
+    "mean_EAAT_annualized_after_tax_return",
+    "median_EAAT_annualized_after_tax_return",
+    "mean_EAAT_annualized_volatility",
+    "median_EAAT_annualized_volatility",
+    "num_valid_TA_EAAT_Sharpe_episodes",
+    "median_TA_EAAT_Sharpe",
+    "pct_positive_TA_EAAT_Sharpe",
+    "median_TA_EAAT_annualized_after_tax_return",
+    "median_TA_EAAT_annualized_volatility",
+]
 STEP4_SOURCE_REQUIRED_SHARPE_COLUMNS = [
     "split",
     "policy_name",
@@ -186,6 +200,32 @@ STEP4_LEGACY_FORBIDDEN_COLUMN_TOKENS = [
     "reward_A_proxy",
     "full_horizon_annualized_sharpe",
     "invested_period_annualized_sharpe",
+]
+STEP6_FORBIDDEN_LEGACY_SHARPE_COLUMNS = {
+    "sharpe_episode",
+    "sortino_episode",
+    "episode_step_sharpe",
+    "pooled_step_sharpe",
+    "full_horizon_annualized_sharpe",
+    "invested_period_annualized_sharpe",
+    "mean_TA_EAAT_Sharpe",
+    "std_TA_EAAT_Sharpe",
+}
+STEP6_REQUIRED_TAX_ACCOUNTING_COLUMNS = [
+    "short_term_realized_fraction",
+    "long_term_realized_fraction",
+    "mean_total_tax_paid",
+    "median_total_tax_paid",
+    "tax_paid_as_pct_of_positive_taxable_pre_tax_increment",
+    "mean_effective_tax_rate",
+    "mean_pre_tax_realized_gain",
+    "mean_after_tax_realized_gain",
+    "mean_after_tax_value_loss_vs_pre_tax",
+    "mean_after_tax_value_loss_pct_vs_pre_tax",
+    "mean_final_after_tax_total_value",
+    "mean_realized_after_tax_pnl",
+    "mean_tax_paid_difference_vs_hold_to_terminal",
+    "mean_tax_paid_difference_vs_sell_immediately",
 ]
 STEP4_EAAT_NOTE_REQUIRED_PHRASES = [
     "EAAT Sharpe uses terminal after-tax wealth",
@@ -572,6 +612,12 @@ def aggregate_policy_metrics(
     )
     summary["discretionary_sale_episode_pct"] = 1.0 - summary["no_cut_episode_pct"]
     return ordered_policy_frame(summary, policies)
+
+
+def safe_divide(numerator: pd.Series, denominator: pd.Series) -> pd.Series:
+    denominator = denominator.mask(denominator.eq(0.0))
+    result = numerator / denominator
+    return result.replace([np.inf, -np.inf], np.nan)
 
 
 def plot_bar_by_split(
@@ -1201,34 +1247,194 @@ def build_step5(
     return out
 
 
+def validate_no_legacy_step6_metrics(columns: list[str]) -> None:
+    bad_columns = [
+        column for column in columns if column in STEP6_FORBIDDEN_LEGACY_SHARPE_COLUMNS
+    ]
+    if bad_columns:
+        raise ValueError(
+            "Step 6 output attempted to include forbidden legacy Sharpe column(s): "
+            + ", ".join(sorted(set(bad_columns)))
+        )
+
+
+def validate_step6_output(out: pd.DataFrame, sharpe_df: pd.DataFrame) -> None:
+    missing_output_rows = missing_split_policy_rows(
+        out,
+        policies=POLICY_UNIVERSE,
+        splits=VALIDATION_TEST_SPLITS,
+    )
+    if missing_output_rows:
+        raise ValueError(
+            "Step 6 table is missing required split-policy rows: "
+            + ", ".join(missing_output_rows)
+        )
+
+    sharpe_pairs = sharpe_df[["split", "policy_name"]].drop_duplicates()
+    missing_sharpe_rows = missing_split_policy_rows(
+        sharpe_pairs,
+        policies=POLICY_UNIVERSE,
+        splits=VALIDATION_TEST_SPLITS,
+    )
+    if missing_sharpe_rows:
+        raise ValueError(
+            "Step 6 corrected EAAT/TA-EAAT source is missing split-policy rows: "
+            + ", ".join(missing_sharpe_rows)
+        )
+
+    merged_missing = out[
+        out["num_valid_EAAT_Sharpe_episodes"].isna()
+        | out["num_valid_TA_EAAT_Sharpe_episodes"].isna()
+    ]
+    if not merged_missing.empty:
+        raise ValueError(
+            "Step 6 table is missing corrected EAAT/TA-EAAT values for: "
+            + ", ".join(
+                f"{row.split}:{row.policy_name}"
+                for row in merged_missing.itertuples(index=False)
+            )
+        )
+
+    missing_tax_columns = [
+        column for column in STEP6_REQUIRED_TAX_ACCOUNTING_COLUMNS if column not in out.columns
+    ]
+    missing_sharpe_columns = [
+        column for column in STEP6_EAAT_SHARPE_COLUMNS if column not in out.columns
+    ]
+    if missing_tax_columns or missing_sharpe_columns:
+        raise ValueError(
+            "Step 6 table is missing required metric columns. "
+            f"tax={missing_tax_columns}; sharpe={missing_sharpe_columns}"
+        )
+
+    validate_no_legacy_step6_metrics(out.columns.tolist())
+    numeric = out.select_dtypes(include=[np.number])
+    if np.isinf(numeric.to_numpy()).any():
+        raise ValueError("Step 6 output contains infinite values after safe division.")
+
+
+def plot_step6_median_eaat_ta_eaat_sharpe(
+    out: pd.DataFrame,
+    plots_dir: Path,
+    registry: OutputRegistry,
+) -> None:
+    split_df = out[out["split"].eq("test")].copy()
+    if split_df.empty:
+        raise ValueError("Missing Step 6 test rows for median EAAT/TA-EAAT chart.")
+    x = np.arange(len(split_df))
+    width = 0.38
+    plt.figure(figsize=(11, 4.8))
+    plt.bar(
+        x - width / 2.0,
+        split_df["median_EAAT_Sharpe"],
+        width,
+        label="median EAAT Sharpe",
+        color="#3b6ea8",
+    )
+    plt.bar(
+        x + width / 2.0,
+        split_df["median_TA_EAAT_Sharpe"],
+        width,
+        label="median TA-EAAT Sharpe",
+        color="#8a6f2a",
+    )
+    plt.xticks(x, split_df["policy_name"].map(short_policy_label), rotation=35, ha="right")
+    plt.ylabel("median Sharpe")
+    plt.title("Median EAAT and TA-EAAT Sharpe - test")
+    plt.legend()
+    plt.grid(axis="y", alpha=0.25)
+    save_plot(
+        plots_dir / "step6_median_eaat_and_ta_eaat_sharpe_test.png",
+        registry,
+        "6",
+        "Grouped median EAAT and TA-EAAT Sharpe by policy for the test split.",
+    )
+
+
 def build_step6(
     episode_df: pd.DataFrame,
     output_dir: Path,
     plots_dir: Path,
     registry: OutputRegistry,
+    *,
+    config: dict[str, Any],
+    run_path: Path,
 ) -> pd.DataFrame:
     summary = aggregate_policy_metrics(episode_df, POLICY_UNIVERSE, VALIDATION_TEST_SPLITS)
+    step6_metrics = episode_df[
+        episode_df["split"].isin(VALIDATION_TEST_SPLITS)
+        & episode_df["policy_name"].isin(POLICY_UNIVERSE)
+    ].copy()
+    step6_metrics["episode_realized_pre_tax_pnl"] = (
+        step6_metrics["episode_realized_after_tax_pnl"] + step6_metrics["total_tax_paid"]
+    )
+    step6_metrics["episode_final_pre_tax_total_value"] = (
+        step6_metrics["episode_final_after_tax_total_value"]
+        + step6_metrics["total_tax_paid"]
+    )
+    realized_loss = (
+        step6_metrics.groupby(["split", "policy_name"], sort=False)
+        .agg(
+            mean_pre_tax_realized_gain=("episode_realized_pre_tax_pnl", "mean"),
+            mean_after_tax_realized_gain=("episode_realized_after_tax_pnl", "mean"),
+            mean_final_pre_tax_total_value=(
+                "episode_final_pre_tax_total_value",
+                "mean",
+            ),
+        )
+        .reset_index()
+    )
+    summary = summary.merge(
+        realized_loss,
+        on=["split", "policy_name"],
+        how="left",
+        validate="one_to_one",
+    )
     summary["short_term_realized_fraction"] = summary[
         "mean_pct_position_sold_short_term"
     ]
     summary["long_term_realized_fraction"] = summary[
         "mean_pct_position_sold_long_term"
     ]
-    denominator = summary["positive_taxable_pre_tax_increment_sum"].replace(0, np.nan)
     summary["tax_paid_as_pct_of_positive_taxable_pre_tax_increment"] = (
-        summary["total_tax_paid_sum"] / denominator
+        safe_divide(
+            summary["total_tax_paid_sum"],
+            summary["positive_taxable_pre_tax_increment_sum"],
+        )
+    )
+    summary["mean_after_tax_value_loss_vs_pre_tax"] = (
+        summary["mean_pre_tax_realized_gain"]
+        - summary["mean_after_tax_realized_gain"]
+    )
+    summary["mean_after_tax_value_loss_pct_vs_pre_tax"] = safe_divide(
+        summary["mean_after_tax_value_loss_vs_pre_tax"],
+        summary["mean_pre_tax_realized_gain"],
+    )
+    summary["mean_final_after_tax_value_loss_vs_pre_tax"] = (
+        summary["mean_final_pre_tax_total_value"]
+        - summary["mean_final_after_tax_total_value"]
+    )
+    summary["mean_final_after_tax_value_loss_pct_vs_pre_tax"] = safe_divide(
+        summary["mean_final_after_tax_value_loss_vs_pre_tax"],
+        summary["mean_final_pre_tax_total_value"],
     )
     pivot = summary.pivot(
         index="split",
         columns="policy_name",
         values="mean_total_tax_paid",
     )
-    summary["estimated_tax_drag_vs_hold_to_terminal"] = (
+    summary["mean_tax_paid_difference_vs_hold_to_terminal"] = (
         summary["mean_total_tax_paid"] - summary["split"].map(pivot["hold_to_terminal"])
     )
-    summary["estimated_tax_drag_vs_sell_immediately"] = (
+    summary["mean_tax_paid_difference_vs_sell_immediately"] = (
         summary["mean_total_tax_paid"] - summary["split"].map(pivot["sell_immediately"])
     )
+    sharpe_df = load_step3b_eaat_sharpe_metrics(
+        config=config,
+        run_path=run_path,
+        output_dir=output_dir,
+    )
+    sharpe_columns = ["split", "policy_name", *STEP6_EAAT_SHARPE_COLUMNS]
     columns = [
         "split",
         "policy_name",
@@ -1238,12 +1444,25 @@ def build_step6(
         "median_total_tax_paid",
         "tax_paid_as_pct_of_positive_taxable_pre_tax_increment",
         "mean_effective_tax_rate",
+        "mean_pre_tax_realized_gain",
+        "mean_after_tax_realized_gain",
+        "mean_after_tax_value_loss_vs_pre_tax",
+        "mean_after_tax_value_loss_pct_vs_pre_tax",
         "mean_final_after_tax_total_value",
+        "mean_final_pre_tax_total_value",
+        "mean_final_after_tax_value_loss_vs_pre_tax",
+        "mean_final_after_tax_value_loss_pct_vs_pre_tax",
         "mean_realized_after_tax_pnl",
-        "estimated_tax_drag_vs_hold_to_terminal",
-        "estimated_tax_drag_vs_sell_immediately",
+        "mean_tax_paid_difference_vs_hold_to_terminal",
+        "mean_tax_paid_difference_vs_sell_immediately",
     ]
-    out = summary[columns]
+    out = summary[columns].merge(
+        sharpe_df[sharpe_columns],
+        on=["split", "policy_name"],
+        how="left",
+        validate="one_to_one",
+    )
+    validate_step6_output(out, sharpe_df)
     save_table(
         out,
         output_dir / "step6_tax_efficiency_analysis.csv",
@@ -1255,8 +1474,19 @@ def build_step6(
     notes = "\n".join(
         [
             "Step 6 tax-efficiency notes",
+            "Step 6 combines tax-accounting diagnostics with corrected EAAT / TA-EAAT Sharpe diagnostics.",
+            "EAAT Sharpe measures exposure-adjusted after-tax annual risk efficiency using terminal after-tax wealth.",
+            "TA-EAAT Sharpe measures tranche-annualized after-tax risk efficiency across sale tranches.",
+            "Final after-tax value remains the primary thesis metric.",
+            "EAAT and TA-EAAT are secondary risk-adjusted diagnostics.",
+            "Tax-paid differences versus hold_to_terminal and sell_immediately are differences in mean tax paid, not causal estimates.",
             "tax_paid_as_pct_of_positive_taxable_pre_tax_increment uses total_positive_taxable_pre_tax_increment from baseline_episode_metrics.csv.",
-            "estimated_tax_drag_vs_hold_to_terminal and estimated_tax_drag_vs_sell_immediately are differences in mean_total_tax_paid, not causal estimates.",
+            "mean_pre_tax_realized_gain is computed as episode_realized_after_tax_pnl + total_tax_paid, averaged by split-policy.",
+            "mean_final_pre_tax_total_value is computed as episode_final_after_tax_total_value + total_tax_paid, averaged by split-policy.",
+            f"annual risk-free rate = {ANNUAL_RISK_FREE_RATE:.0%}",
+            f"daily risk-free rate = (1 + {ANNUAL_RISK_FREE_RATE}) ** (1 / {ANNUALIZATION_FACTOR}) - 1 = {DAILY_RISK_FREE_RATE}",
+            f"annualization factor = {ANNUALIZATION_FACTOR}",
+            "liquidated after-tax proceeds earn the daily risk-free rate",
             "",
         ]
     )
@@ -1289,6 +1519,7 @@ def build_step6(
             "6",
             f"Stacked short/long-term sold fraction for {split}.",
         )
+    plot_step6_median_eaat_ta_eaat_sharpe(out, plots_dir, registry)
     plot_bar_by_split(
         out,
         "test",
@@ -2556,7 +2787,14 @@ def main() -> None:
         run_path=run_path,
     )
     build_step5(baseline_episode, output_dir, plots_dir, registry)
-    build_step6(baseline_episode, output_dir, plots_dir, registry)
+    build_step6(
+        baseline_episode,
+        output_dir,
+        plots_dir,
+        registry,
+        config=config,
+        run_path=run_path,
+    )
     diag_episode, diag_step, train_generated = build_step7(
         config_path,
         config,

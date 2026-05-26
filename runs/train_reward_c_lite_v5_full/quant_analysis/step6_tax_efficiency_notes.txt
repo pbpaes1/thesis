@@ -1,3 +1,14 @@
 Step 6 tax-efficiency notes
+Step 6 combines tax-accounting diagnostics with corrected EAAT / TA-EAAT Sharpe diagnostics.
+EAAT Sharpe measures exposure-adjusted after-tax annual risk efficiency using terminal after-tax wealth.
+TA-EAAT Sharpe measures tranche-annualized after-tax risk efficiency across sale tranches.
+Final after-tax value remains the primary thesis metric.
+EAAT and TA-EAAT are secondary risk-adjusted diagnostics.
+Tax-paid differences versus hold_to_terminal and sell_immediately are differences in mean tax paid, not causal estimates.
 tax_paid_as_pct_of_positive_taxable_pre_tax_increment uses total_positive_taxable_pre_tax_increment from baseline_episode_metrics.csv.
-estimated_tax_drag_vs_hold_to_terminal and estimated_tax_drag_vs_sell_immediately are differences in mean_total_tax_paid, not causal estimates.
+mean_pre_tax_realized_gain is computed as episode_realized_after_tax_pnl + total_tax_paid, averaged by split-policy.
+mean_final_pre_tax_total_value is computed as episode_final_after_tax_total_value + total_tax_paid, averaged by split-policy.
+annual risk-free rate = 4%
+daily risk-free rate = (1 + 0.04) ** (1 / 252) - 1 = 0.0001556498627912628
+annualization factor = 252
+liquidated after-tax proceeds earn the daily risk-free rate
