@@ -300,14 +300,224 @@
     "type": "md"
   },
   {
+    "description": "Thesis-facing preferred-policy win/loss table versus benchmark policies.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_win_loss_vs_benchmark_table.csv",
+    "step": "8",
+    "type": "csv"
+  },
+  {
+    "description": "Thesis-facing preferred-policy win/loss table versus benchmark policies.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_win_loss_vs_benchmark_table.md",
+    "step": "8",
+    "type": "md"
+  },
+  {
+    "description": "Preferred DQN versus hold_to_terminal situational diagnostics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_preferred_vs_hold_situational_analysis.csv",
+    "step": "8",
+    "type": "csv"
+  },
+  {
+    "description": "Preferred DQN versus hold_to_terminal situational diagnostics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_preferred_vs_hold_situational_analysis.md",
+    "step": "8",
+    "type": "md"
+  },
+  {
+    "description": "Post-hoc preferred DQN versus hold_to_terminal win/loss characteristics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_preferred_vs_hold_win_loss_characteristics.csv",
+    "step": "8",
+    "type": "csv"
+  },
+  {
+    "description": "Post-hoc preferred DQN versus hold_to_terminal win/loss characteristics.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_preferred_vs_hold_win_loss_characteristics.md",
+    "step": "8",
+    "type": "md"
+  },
+  {
     "description": "Benchmark dominance summary text.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_benchmark_dominance_summary.txt",
     "step": "8",
     "type": "txt"
   },
   {
+    "description": "Preferred DQN versus hold_to_terminal situational-analysis notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step8_preferred_vs_hold_situational_notes.txt",
+    "step": "8",
+    "type": "txt"
+  },
+  {
     "description": "Preferred policy mean paired differences against benchmarks on test split.",
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_preferred_vs_benchmarks_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by hold_terminal_outcome_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_hold_terminal_outcome_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by hold_terminal_outcome_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_hold_terminal_outcome_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by hold_terminal_weak for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_hold_terminal_weak_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by hold_terminal_weak for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_hold_terminal_weak_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by drawdown_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_drawdown_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by drawdown_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_drawdown_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by volatility_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_volatility_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by volatility_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_volatility_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by tax_transition_distance_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_tax_transition_distance_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by tax_transition_distance_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_tax_transition_distance_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by economic_period for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_economic_period_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by economic_period for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_economic_period_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by episode_start_year_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_episode_start_year_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by episode_start_year_bucket for validation.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_episode_start_year_bucket_validation.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by hold_terminal_outcome_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_hold_terminal_outcome_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by hold_terminal_outcome_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_hold_terminal_outcome_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by hold_terminal_weak for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_hold_terminal_weak_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by hold_terminal_weak for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_hold_terminal_weak_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by drawdown_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_drawdown_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by drawdown_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_drawdown_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by volatility_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_volatility_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by volatility_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_volatility_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by tax_transition_distance_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_tax_transition_distance_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by tax_transition_distance_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_tax_transition_distance_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by economic_period for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_economic_period_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by economic_period for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_economic_period_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy win/tie/loss rates versus hold_to_terminal by episode_start_year_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_win_tie_loss_vs_hold_by_episode_start_year_bucket_test.png",
+    "step": "8",
+    "type": "png"
+  },
+  {
+    "description": "Preferred policy mean difference versus hold_to_terminal by episode_start_year_bucket for test.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step8_mean_difference_vs_hold_by_episode_start_year_bucket_test.png",
     "step": "8",
     "type": "png"
   },

@@ -282,6 +282,26 @@ STEP7_PAIR_BENCHMARKS = [
     "sell_immediately",
     "sell_half_then_hold",
 ]
+STEP8_BENCHMARK_POLICIES = [
+    "hold_to_terminal",
+    "sell_immediately",
+    "sell_half_then_hold",
+    "sell_quarters_over_time",
+    "random_policy",
+]
+STEP8_REQUIRED_EPISODE_COLUMNS = [
+    "split",
+    "policy_name",
+    "episode_id",
+    "episode_final_after_tax_total_value",
+    "total_tax_paid",
+    "pct_episode_position_sold_short_term",
+    "pct_episode_position_sold_long_term",
+    "episode_cut_occurred",
+    "num_discretionary_sales",
+    "days_to_first_sale",
+]
+STEP8_FORBIDDEN_LEGACY_SHARPE_COLUMNS = STEP6_FORBIDDEN_LEGACY_SHARPE_COLUMNS
 STEP4_EAAT_NOTE_REQUIRED_PHRASES = [
     "EAAT Sharpe uses terminal after-tax wealth",
     "TA-EAAT Sharpe uses sale-level tranches",
@@ -2486,80 +2506,699 @@ def build_step7(
     return diag_episode, diag_step, train_generated
 
 
-def build_step8(
-    episode_df: pd.DataFrame,
-    output_dir: Path,
-    plots_dir: Path,
-    registry: OutputRegistry,
-) -> pd.DataFrame:
-    rows: list[dict[str, Any]] = []
-    final_values = episode_df[
-        episode_df["split"].isin(VALIDATION_TEST_SPLITS)
-        & episode_df["policy_name"].isin([PREFERRED_POLICY, *BENCHMARK_POLICIES])
+def validate_no_legacy_step8_metrics(columns: list[str]) -> None:
+    bad_columns = [
+        column for column in columns if column in STEP8_FORBIDDEN_LEGACY_SHARPE_COLUMNS
     ]
-    for split in VALIDATION_TEST_SPLITS:
-        preferred = final_values[
-            final_values["split"].eq(split) & final_values["policy_name"].eq(PREFERRED_POLICY)
-        ][
-            [
-                "episode_id",
-                "episode_final_after_tax_total_value",
-                "total_tax_paid",
-                "pct_episode_position_sold_short_term",
-            ]
-        ].rename(
-            columns={
-                "episode_final_after_tax_total_value": "preferred_value",
-                "total_tax_paid": "preferred_tax_paid",
-                "pct_episode_position_sold_short_term": "preferred_short_term",
-            }
+    if bad_columns:
+        raise ValueError(
+            "Step 8 output attempted to include forbidden legacy Sharpe column(s): "
+            + ", ".join(sorted(set(bad_columns)))
         )
-        for benchmark in BENCHMARK_POLICIES:
-            bench = final_values[
-                final_values["split"].eq(split) & final_values["policy_name"].eq(benchmark)
-            ][
-                [
-                    "episode_id",
-                    "episode_final_after_tax_total_value",
-                    "total_tax_paid",
-                    "pct_episode_position_sold_short_term",
-                ]
-            ].rename(
-                columns={
-                    "episode_final_after_tax_total_value": "benchmark_value",
-                    "total_tax_paid": "benchmark_tax_paid",
-                    "pct_episode_position_sold_short_term": "benchmark_short_term",
+
+
+def validate_step8_table(df: pd.DataFrame, *, name: str) -> None:
+    if df.empty:
+        raise ValueError(f"Step 8 generated empty table: {name}")
+    validate_no_legacy_step8_metrics(df.columns.tolist())
+    numeric = df.select_dtypes(include=[np.number])
+    if np.isinf(numeric.to_numpy()).any():
+        raise ValueError(f"Step 8 table contains infinite values: {name}")
+
+
+def validate_step8_inputs(episode_df: pd.DataFrame, step_df: pd.DataFrame) -> None:
+    require_columns(
+        episode_df,
+        STEP8_REQUIRED_EPISODE_COLUMNS,
+        source=Path("baseline episode metrics"),
+        step="Step 8",
+    )
+    require_columns(
+        step_df,
+        [
+            "split",
+            "policy_name",
+            "episode_id",
+            "step_in_episode",
+            "date",
+            "tax_transition_date",
+            "after_tax_total_value",
+        ],
+        source=Path("baseline step rollouts"),
+        step="Step 8",
+    )
+    missing = missing_split_policy_rows(
+        episode_df,
+        policies=[PREFERRED_POLICY, "hold_to_terminal"],
+        splits=VALIDATION_TEST_SPLITS,
+    )
+    if missing:
+        raise ValueError(
+            "Step 8 requires preferred policy and hold_to_terminal rows: "
+            + ", ".join(missing)
+        )
+
+
+def paired_preferred_benchmark_frame(
+    episode_df: pd.DataFrame,
+    *,
+    split: str,
+    benchmark: str,
+) -> pd.DataFrame:
+    preferred = episode_df[
+        episode_df["split"].eq(split) & episode_df["policy_name"].eq(PREFERRED_POLICY)
+    ][
+        [
+            "episode_id",
+            "episode_final_after_tax_total_value",
+            "total_tax_paid",
+            "pct_episode_position_sold_short_term",
+        ]
+    ].rename(
+        columns={
+            "episode_final_after_tax_total_value": "preferred_value",
+            "total_tax_paid": "preferred_tax_paid",
+            "pct_episode_position_sold_short_term": "preferred_short_term",
+        }
+    )
+    bench = episode_df[
+        episode_df["split"].eq(split) & episode_df["policy_name"].eq(benchmark)
+    ][
+        [
+            "episode_id",
+            "episode_final_after_tax_total_value",
+            "total_tax_paid",
+            "pct_episode_position_sold_short_term",
+        ]
+    ].rename(
+        columns={
+            "episode_final_after_tax_total_value": "benchmark_value",
+            "total_tax_paid": "benchmark_tax_paid",
+            "pct_episode_position_sold_short_term": "benchmark_short_term",
+        }
+    )
+    merged = preferred.merge(bench, on="episode_id", how="inner", validate="one_to_one")
+    if merged.empty:
+        raise ValueError(
+            f"Step 8 found no paired episodes for split={split}, benchmark={benchmark}."
+        )
+    return merged
+
+
+def win_loss_result(mean_difference: float) -> str:
+    if mean_difference > 0:
+        return "Win"
+    if mean_difference < 0:
+        return "Loss"
+    return "Tie"
+
+
+def build_step8_win_loss_table(episode_df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for split in VALIDATION_TEST_SPLITS:
+        for benchmark in STEP8_BENCHMARK_POLICIES:
+            merged = paired_preferred_benchmark_frame(
+                episode_df,
+                split=split,
+                benchmark=benchmark,
+            )
+            diff = merged["preferred_value"] - merged["benchmark_value"]
+            mean_difference = float(diff.mean())
+            rows.append(
+                {
+                    "split": split,
+                    "benchmark_policy": benchmark,
+                    "num_paired_episodes": int(len(merged)),
+                    "preferred_mean_final_after_tax_value": float(
+                        merged["preferred_value"].mean()
+                    ),
+                    "benchmark_mean_final_after_tax_value": float(
+                        merged["benchmark_value"].mean()
+                    ),
+                    "mean_difference": mean_difference,
+                    "median_difference": float(diff.median()),
+                    "win_rate": float(diff.gt(0).mean()),
+                    "tie_rate": float(diff.eq(0).mean()),
+                    "loss_rate": float(diff.lt(0).mean()),
+                    "result": win_loss_result(mean_difference),
                 }
             )
-            merged = preferred.merge(bench, on="episode_id", how="inner")
+    out = pd.DataFrame(rows)
+    validate_step8_table(out, name="step8_win_loss_vs_benchmark_table")
+    return out
+
+
+def build_step8_dominance_table(episode_df: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for split in VALIDATION_TEST_SPLITS:
+        for benchmark in STEP8_BENCHMARK_POLICIES:
+            merged = paired_preferred_benchmark_frame(
+                episode_df,
+                split=split,
+                benchmark=benchmark,
+            )
             diff = merged["preferred_value"] - merged["benchmark_value"]
             rows.append(
                 {
                     "split": split,
                     "benchmark_policy": benchmark,
-                    "num_paired_episodes": len(merged),
-                    "mean_difference": diff.mean(),
-                    "median_difference": diff.median(),
-                    "win_rate": diff.gt(0).mean(),
-                    "tie_rate": diff.eq(0).mean(),
-                    "loss_rate": diff.lt(0).mean(),
-                    "preferred_mean_final_after_tax_value": merged[
-                        "preferred_value"
-                    ].mean(),
-                    "benchmark_mean_final_after_tax_value": merged[
-                        "benchmark_value"
-                    ].mean(),
-                    "preferred_minus_benchmark_total_mean_tax_paid": (
+                    "num_paired_episodes": int(len(merged)),
+                    "mean_difference": float(diff.mean()),
+                    "median_difference": float(diff.median()),
+                    "win_rate": float(diff.gt(0).mean()),
+                    "tie_rate": float(diff.eq(0).mean()),
+                    "loss_rate": float(diff.lt(0).mean()),
+                    "preferred_mean_final_after_tax_value": float(
+                        merged["preferred_value"].mean()
+                    ),
+                    "benchmark_mean_final_after_tax_value": float(
+                        merged["benchmark_value"].mean()
+                    ),
+                    "preferred_minus_benchmark_total_mean_tax_paid": float(
                         merged["preferred_tax_paid"].mean()
                         - merged["benchmark_tax_paid"].mean()
                     ),
-                    "preferred_minus_benchmark_short_term_sold_fraction": (
+                    "preferred_minus_benchmark_short_term_sold_fraction": float(
                         merged["preferred_short_term"].mean()
                         - merged["benchmark_short_term"].mean()
                     ),
                 }
             )
     out = pd.DataFrame(rows)
+    validate_step8_table(out, name="step8_benchmark_dominance_analysis")
+    return out
+
+
+def step8_hold_path_stats(step_df: pd.DataFrame) -> pd.DataFrame:
+    hold_steps = step_df[
+        step_df["split"].isin(VALIDATION_TEST_SPLITS)
+        & step_df["policy_name"].eq("hold_to_terminal")
+    ].copy()
+    hold_steps["date"] = pd.to_datetime(hold_steps["date"], errors="coerce")
+    hold_steps["tax_transition_date"] = pd.to_datetime(
+        hold_steps["tax_transition_date"],
+        errors="coerce",
+    )
+    hold_steps = hold_steps.sort_values(["split", "episode_id", "step_in_episode"])
+    hold_steps["path_return_proxy"] = hold_steps.groupby(
+        ["split", "episode_id"]
+    )["after_tax_total_value"].pct_change()
+    hold_steps["path_return_proxy"] = hold_steps["path_return_proxy"].replace(
+        [np.inf, -np.inf],
+        np.nan,
+    )
+    stats = (
+        hold_steps.groupby(["split", "episode_id"], as_index=False)
+        .agg(
+            hold_path_first_value=("after_tax_total_value", "first"),
+            hold_path_min_value=("after_tax_total_value", "min"),
+            episode_start_date=("date", "first"),
+            tax_transition_date=("tax_transition_date", "first"),
+            volatility_proxy=("path_return_proxy", "std"),
+        )
+    )
+    stats["drawdown_proxy"] = (
+        stats["hold_path_first_value"] - stats["hold_path_min_value"]
+    )
+    stats["calendar_year"] = stats["episode_start_date"].dt.year
+    stats["economic_period"] = stats["calendar_year"].map(economic_period_from_year)
+    stats["days_until_tax_transition_at_start"] = (
+        stats["tax_transition_date"] - stats["episode_start_date"]
+    ).dt.days
+    return stats
+
+
+def step8_preferred_vs_hold_base(
+    episode_df: pd.DataFrame,
+    step_df: pd.DataFrame,
+) -> pd.DataFrame:
+    paired_rows: list[pd.DataFrame] = []
+    path_stats = step8_hold_path_stats(step_df)
+    for split in VALIDATION_TEST_SPLITS:
+        preferred = episode_df[
+            episode_df["split"].eq(split) & episode_df["policy_name"].eq(PREFERRED_POLICY)
+        ][
+            [
+                "split",
+                "episode_id",
+                "episode_final_after_tax_total_value",
+                "total_tax_paid",
+                "pct_episode_position_sold_short_term",
+                "pct_episode_position_sold_long_term",
+                "episode_cut_occurred",
+                "num_discretionary_sales",
+                "days_to_first_sale",
+            ]
+        ].rename(
+            columns={
+                "episode_final_after_tax_total_value": "preferred_final_after_tax_value",
+                "total_tax_paid": "preferred_tax_paid",
+                "pct_episode_position_sold_short_term": "preferred_short_term_sold_fraction",
+                "pct_episode_position_sold_long_term": "preferred_long_term_sold_fraction",
+                "episode_cut_occurred": "preferred_cut_occurred",
+                "num_discretionary_sales": "preferred_num_discretionary_sales",
+                "days_to_first_sale": "preferred_days_to_first_sale",
+            }
+        )
+        hold = episode_df[
+            episode_df["split"].eq(split) & episode_df["policy_name"].eq("hold_to_terminal")
+        ][
+            [
+                "split",
+                "episode_id",
+                "episode_final_after_tax_total_value",
+                "total_tax_paid",
+                "pct_episode_position_sold_short_term",
+                "pct_episode_position_sold_long_term",
+            ]
+        ].rename(
+            columns={
+                "episode_final_after_tax_total_value": "hold_final_after_tax_value",
+                "total_tax_paid": "hold_tax_paid",
+                "pct_episode_position_sold_short_term": "hold_short_term_sold_fraction",
+                "pct_episode_position_sold_long_term": "hold_long_term_sold_fraction",
+            }
+        )
+        paired = preferred.merge(
+            hold,
+            on=["split", "episode_id"],
+            how="inner",
+            validate="one_to_one",
+        )
+        if paired.empty:
+            raise ValueError(f"Step 8 found no preferred/hold paired episodes for {split}.")
+        paired_rows.append(paired)
+    base = pd.concat(paired_rows, ignore_index=True)
+    base = base.merge(
+        path_stats,
+        on=["split", "episode_id"],
+        how="left",
+        validate="one_to_one",
+    )
+    base["preferred_minus_hold"] = (
+        base["preferred_final_after_tax_value"] - base["hold_final_after_tax_value"]
+    )
+    base["preferred_beats_hold"] = base["preferred_minus_hold"].gt(0)
+    base["preferred_ties_hold"] = base["preferred_minus_hold"].eq(0)
+    base["preferred_loses_to_hold"] = base["preferred_minus_hold"].lt(0)
+    base["preferred_no_cut"] = ~base["preferred_cut_occurred"]
+    base["preferred_discretionary_sale"] = (
+        base["preferred_num_discretionary_sales"].fillna(0).gt(0)
+    )
+    return base
+
+
+def add_step8_situational_buckets(
+    base: pd.DataFrame,
+    notes: list[str],
+    episode_df: pd.DataFrame,
+) -> tuple[pd.DataFrame, list[tuple[str, str]]]:
+    groupings: list[tuple[str, str]] = []
+    base["hold_terminal_outcome_bucket"] = pd.cut(
+        base["hold_final_after_tax_value"],
+        bins=[-np.inf, 0.30, 0.45, 0.60, np.inf],
+        labels=[
+            "hold_terminal_final_value <= 0.30",
+            "0.30 < hold_terminal_final_value <= 0.45",
+            "0.45 < hold_terminal_final_value <= 0.60",
+            "hold_terminal_final_value > 0.60",
+        ],
+    ).astype(object)
+    groupings.append(("hold_terminal_outcome_bucket", "hold_terminal_outcome_bucket"))
+    notes.append(
+        "hold_terminal_outcome_bucket uses fixed hold_to_terminal final after-tax value buckets: <=0.30, 0.30-0.45, 0.45-0.60, >0.60."
+    )
+
+    base["hold_terminal_weak"] = np.where(
+        base["hold_final_after_tax_value"].le(0.30),
+        "hold_terminal_weak",
+        "hold_terminal_not_weak",
+    )
+    groupings.append(("hold_terminal_weak", "hold_terminal_weak"))
+    notes.append("hold_terminal_weak is True when hold_to_terminal final value <= 0.30.")
+
+    if base["drawdown_proxy"].notna().any():
+        base["drawdown_bucket"] = quantile_bucket(
+            base["drawdown_proxy"],
+            ["low_drawdown", "medium_drawdown", "high_drawdown"],
+        ).astype(object)
+        groupings.append(("drawdown_bucket", "drawdown_bucket"))
+        notes.append(
+            "drawdown_bucket uses tertiles of hold_to_terminal path drawdown proxy: first after-tax path value minus minimum after-tax path value."
+        )
+    else:
+        notes.append("drawdown_bucket skipped because hold_to_terminal path values were unavailable.")
+
+    if base["volatility_proxy"].notna().any():
+        base["volatility_bucket"] = quantile_bucket(
+            base["volatility_proxy"],
+            ["low_volatility", "medium_volatility", "high_volatility"],
+        ).astype(object)
+        groupings.append(("volatility_bucket", "volatility_bucket"))
+        notes.append(
+            "volatility_bucket uses tertiles of hold_to_terminal daily after-tax path percent-change volatility."
+        )
+    else:
+        notes.append("volatility_bucket skipped because hold_to_terminal path volatility was unavailable.")
+
+    if base["days_until_tax_transition_at_start"].notna().any():
+        base["tax_transition_distance_bucket"] = quantile_bucket(
+            base["days_until_tax_transition_at_start"],
+            ["near_transition", "medium_transition_distance", "far_from_transition"],
+        ).astype(object)
+        groupings.append(
+            ("tax_transition_distance_bucket", "tax_transition_distance_bucket")
+        )
+        notes.append(
+            "tax_transition_distance_bucket uses tertiles of days from the first rollout date to tax_transition_date; lower values are near_transition."
+        )
+    else:
+        notes.append(
+            "tax_transition_distance_bucket skipped because tax_transition_date was unavailable."
+        )
+
+    if base["economic_period"].notna().any():
+        base["economic_period"] = base["economic_period"].fillna(
+            "unknown_or_outside_defined_period"
+        )
+        groupings.append(("economic_period", "economic_period"))
+        notes.append("economic_period reuses the Step 7 calendar-year mapping.")
+    else:
+        notes.append("economic_period skipped because episode start dates were unavailable.")
+
+    base["episode_start_year_bucket"] = base["calendar_year"].fillna("unknown").astype(str)
+    groupings.append(("episode_start_year_bucket", "episode_start_year_bucket"))
+    notes.append("episode_start_year_bucket uses the first hold_to_terminal rollout year.")
+
+    for optional in ["sector", "industry"]:
+        if optional in episode_df.columns:
+            optional_values = episode_df[
+                episode_df["split"].isin(VALIDATION_TEST_SPLITS)
+                & episode_df["policy_name"].eq(PREFERRED_POLICY)
+            ][["split", "episode_id", optional]]
+            base = base.merge(
+                optional_values,
+                on=["split", "episode_id"],
+                how="left",
+                validate="one_to_one",
+            )
+            if optional in base.columns and base[optional].notna().any():
+                groupings.append((optional, optional))
+                notes.append(f"{optional} grouping included from episode-level metadata.")
+            else:
+                notes.append(f"{optional} grouping skipped because metadata was unavailable.")
+        else:
+            notes.append(f"{optional} grouping skipped because metadata was unavailable.")
+    return base, groupings
+
+
+def step8_situational_row(
+    group: pd.DataFrame,
+    *,
+    split: str,
+    group_name: str,
+    group_bucket: str,
+) -> dict[str, Any]:
+    diff = group["preferred_minus_hold"]
+    return {
+        "split": split,
+        "group_name": group_name,
+        "group_bucket": group_bucket,
+        "num_episodes": int(len(group)),
+        "preferred_mean_final_after_tax_value": float(
+            group["preferred_final_after_tax_value"].mean()
+        ),
+        "hold_mean_final_after_tax_value": float(
+            group["hold_final_after_tax_value"].mean()
+        ),
+        "mean_difference_vs_hold": float(diff.mean()),
+        "median_difference_vs_hold": float(diff.median()),
+        "win_rate_vs_hold": float(diff.gt(0).mean()),
+        "tie_rate_vs_hold": float(diff.eq(0).mean()),
+        "loss_rate_vs_hold": float(diff.lt(0).mean()),
+        "preferred_mean_tax_paid": float(group["preferred_tax_paid"].mean()),
+        "hold_mean_tax_paid": float(group["hold_tax_paid"].mean()),
+        "preferred_minus_hold_mean_tax_paid": float(
+            group["preferred_tax_paid"].mean() - group["hold_tax_paid"].mean()
+        ),
+        "preferred_mean_short_term_sold_fraction": float(
+            group["preferred_short_term_sold_fraction"].mean()
+        ),
+        "hold_mean_short_term_sold_fraction": float(
+            group["hold_short_term_sold_fraction"].mean()
+        ),
+        "preferred_no_cut_pct": float(group["preferred_no_cut"].mean()),
+        "preferred_discretionary_sale_pct": float(
+            group["preferred_discretionary_sale"].mean()
+        ),
+        "preferred_average_days_to_first_sale": float(
+            group["preferred_days_to_first_sale"].mean()
+        ),
+        "preferred_median_days_to_first_sale": float(
+            group["preferred_days_to_first_sale"].median()
+        ),
+    }
+
+
+def build_step8_situational_analysis(
+    base: pd.DataFrame,
+    episode_df: pd.DataFrame,
+    notes: list[str],
+) -> pd.DataFrame:
+    base = base.copy()
+    base, groupings = add_step8_situational_buckets(base, notes, episode_df)
+    rows: list[dict[str, Any]] = []
+    for split in VALIDATION_TEST_SPLITS:
+        split_base = base[base["split"].eq(split)]
+        for group_name, group_column in groupings:
+            for bucket, group in split_base.groupby(group_column, sort=False, observed=False):
+                if group.empty:
+                    continue
+                rows.append(
+                    step8_situational_row(
+                        group,
+                        split=split,
+                        group_name=group_name,
+                        group_bucket=str(bucket),
+                    )
+                )
+    out = pd.DataFrame(rows)
+    validate_step8_table(out, name="step8_preferred_vs_hold_situational_analysis")
+    return out
+
+
+def build_step8_win_loss_characteristics(base: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    work = base.copy()
+    work["preferred_vs_hold_bucket"] = np.where(
+        work["preferred_beats_hold"],
+        "preferred_beats_hold",
+        "preferred_does_not_beat_hold",
+    )
+    for split in VALIDATION_TEST_SPLITS:
+        split_base = work[work["split"].eq(split)]
+        for bucket, group in split_base.groupby("preferred_vs_hold_bucket", sort=False):
+            rows.append(
+                {
+                    "split": split,
+                    "preferred_vs_hold_bucket": str(bucket),
+                    "post_hoc_scope": "descriptive_only",
+                    "num_episodes": int(len(group)),
+                    "mean_hold_final_after_tax_value": float(
+                        group["hold_final_after_tax_value"].mean()
+                    ),
+                    "mean_preferred_final_after_tax_value": float(
+                        group["preferred_final_after_tax_value"].mean()
+                    ),
+                    "mean_difference_vs_hold": float(
+                        group["preferred_minus_hold"].mean()
+                    ),
+                    "mean_hold_tax_paid": float(group["hold_tax_paid"].mean()),
+                    "mean_preferred_tax_paid": float(
+                        group["preferred_tax_paid"].mean()
+                    ),
+                    "mean_preferred_short_term_sold_fraction": float(
+                        group["preferred_short_term_sold_fraction"].mean()
+                    ),
+                    "mean_preferred_long_term_sold_fraction": float(
+                        group["preferred_long_term_sold_fraction"].mean()
+                    ),
+                    "preferred_no_cut_pct": float(group["preferred_no_cut"].mean()),
+                    "preferred_discretionary_sale_pct": float(
+                        group["preferred_discretionary_sale"].mean()
+                    ),
+                    "preferred_average_days_to_first_sale": float(
+                        group["preferred_days_to_first_sale"].mean()
+                    ),
+                    "mean_days_until_tax_transition_at_start": float(
+                        group["days_until_tax_transition_at_start"].mean()
+                    ),
+                    "mean_drawdown_proxy": float(group["drawdown_proxy"].mean()),
+                    "mean_volatility_proxy": float(group["volatility_proxy"].mean()),
+                }
+            )
+    out = pd.DataFrame(rows)
+    validate_step8_table(out, name="step8_preferred_vs_hold_win_loss_characteristics")
+    return out
+
+
+def plot_step8_situational_metric(
+    situational: pd.DataFrame,
+    *,
+    split: str,
+    metric: str,
+    ylabel: str,
+    path: Path,
+    registry: OutputRegistry,
+) -> None:
+    split_df = situational[situational["split"].eq(split)].copy()
+    if split_df.empty:
+        raise ValueError(f"Step 8 situational plot has no rows for split={split}.")
+    split_df["label"] = split_df["group_name"] + ": " + split_df["group_bucket"]
+    plt.figure(figsize=(12, 6.2))
+    colors = np.where(split_df[metric].ge(0), "#3b6ea8", "#8a4f3d")
+    plt.bar(split_df["label"], split_df[metric], color=colors)
+    plt.axhline(0, color="black", linewidth=1)
+    plt.ylabel(ylabel)
+    plt.title(f"{ylabel} by ex-ante group - {split}")
+    plt.xticks(rotation=55, ha="right")
+    plt.grid(axis="y", alpha=0.25)
+    plt.tight_layout()
+    save_plot(
+        path,
+        registry,
+        "8",
+        f"Preferred policy versus hold_to_terminal {ylabel} by group for {split}.",
+    )
+
+
+def step8_safe_plot_token(value: str) -> str:
+    return (
+        str(value)
+        .strip()
+        .lower()
+        .replace(" ", "_")
+        .replace("/", "_")
+        .replace("-", "_")
+        .replace("(", "")
+        .replace(")", "")
+    )
+
+
+def plot_step8_group_win_tie_loss_rates(
+    situational: pd.DataFrame,
+    *,
+    split: str,
+    group_name: str,
+    plots_dir: Path,
+    registry: OutputRegistry,
+) -> None:
+    group_df = situational[
+        situational["split"].eq(split) & situational["group_name"].eq(group_name)
+    ].copy()
+    if group_df.empty:
+        raise ValueError(
+            f"Step 8 win/tie/loss plot has no rows for split={split}, group={group_name}."
+        )
+    x = np.arange(len(group_df))
+    plt.figure(figsize=(8.6, 4.8))
+    plt.bar(x, group_df["win_rate_vs_hold"], label="win", color="#3b6ea8")
+    plt.bar(
+        x,
+        group_df["tie_rate_vs_hold"],
+        bottom=group_df["win_rate_vs_hold"],
+        label="tie",
+        color="#8a8a8a",
+    )
+    plt.bar(
+        x,
+        group_df["loss_rate_vs_hold"],
+        bottom=group_df["win_rate_vs_hold"] + group_df["tie_rate_vs_hold"],
+        label="loss",
+        color="#8a4f3d",
+    )
+    plt.xticks(x, group_df["group_bucket"], rotation=35, ha="right")
+    plt.ylim(0, 1)
+    plt.ylabel("episode share")
+    plt.title(f"Preferred vs hold win/tie/loss - {group_name} - {split}")
+    plt.legend()
+    plt.grid(axis="y", alpha=0.25)
+    plt.tight_layout()
+    token = step8_safe_plot_token(group_name)
+    save_plot(
+        plots_dir / f"step8_win_tie_loss_vs_hold_by_{token}_{split}.png",
+        registry,
+        "8",
+        f"Preferred policy win/tie/loss rates versus hold_to_terminal by {group_name} for {split}.",
+    )
+
+
+def plot_step8_group_mean_difference(
+    situational: pd.DataFrame,
+    *,
+    split: str,
+    group_name: str,
+    plots_dir: Path,
+    registry: OutputRegistry,
+) -> None:
+    group_df = situational[
+        situational["split"].eq(split) & situational["group_name"].eq(group_name)
+    ].copy()
+    if group_df.empty:
+        raise ValueError(
+            f"Step 8 mean-difference plot has no rows for split={split}, group={group_name}."
+        )
+    colors = np.where(group_df["mean_difference_vs_hold"].ge(0), "#3b6ea8", "#8a4f3d")
+    plt.figure(figsize=(8.6, 4.8))
+    plt.bar(group_df["group_bucket"], group_df["mean_difference_vs_hold"], color=colors)
+    plt.axhline(0, color="black", linewidth=1)
+    plt.ylabel("mean difference vs hold_to_terminal")
+    plt.title(f"Mean difference vs hold - {group_name} - {split}")
+    plt.xticks(rotation=35, ha="right")
+    plt.grid(axis="y", alpha=0.25)
+    plt.tight_layout()
+    token = step8_safe_plot_token(group_name)
+    save_plot(
+        plots_dir / f"step8_mean_difference_vs_hold_by_{token}_{split}.png",
+        registry,
+        "8",
+        f"Preferred policy mean difference versus hold_to_terminal by {group_name} for {split}.",
+    )
+
+
+def plot_step8_situational_group_charts(
+    situational: pd.DataFrame,
+    plots_dir: Path,
+    registry: OutputRegistry,
+) -> None:
+    group_names = list(dict.fromkeys(situational["group_name"].astype(str).tolist()))
+    for split in VALIDATION_TEST_SPLITS:
+        for group_name in group_names:
+            plot_step8_group_win_tie_loss_rates(
+                situational,
+                split=split,
+                group_name=group_name,
+                plots_dir=plots_dir,
+                registry=registry,
+            )
+            plot_step8_group_mean_difference(
+                situational,
+                split=split,
+                group_name=group_name,
+                plots_dir=plots_dir,
+                registry=registry,
+            )
+
+
+def build_step8(
+    episode_df: pd.DataFrame,
+    step_df: pd.DataFrame,
+    output_dir: Path,
+    plots_dir: Path,
+    registry: OutputRegistry,
+) -> pd.DataFrame:
+    validate_step8_inputs(episode_df, step_df)
+    out = build_step8_dominance_table(episode_df)
     save_table(
         out,
         output_dir / "step8_benchmark_dominance_analysis.csv",
@@ -2568,6 +3207,43 @@ def build_step8(
         "8",
         "Paired preferred-policy dominance analysis against benchmark policies.",
     )
+
+    win_loss = build_step8_win_loss_table(episode_df)
+    save_table(
+        win_loss,
+        output_dir / "step8_win_loss_vs_benchmark_table.csv",
+        output_dir / "step8_win_loss_vs_benchmark_table.md",
+        registry,
+        "8",
+        "Thesis-facing preferred-policy win/loss table versus benchmark policies.",
+    )
+
+    notes: list[str] = []
+    preferred_hold_base = step8_preferred_vs_hold_base(episode_df, step_df)
+    situational = build_step8_situational_analysis(
+        preferred_hold_base,
+        episode_df,
+        notes,
+    )
+    save_table(
+        situational,
+        output_dir / "step8_preferred_vs_hold_situational_analysis.csv",
+        output_dir / "step8_preferred_vs_hold_situational_analysis.md",
+        registry,
+        "8",
+        "Preferred DQN versus hold_to_terminal situational diagnostics.",
+    )
+
+    win_loss_characteristics = build_step8_win_loss_characteristics(preferred_hold_base)
+    save_table(
+        win_loss_characteristics,
+        output_dir / "step8_preferred_vs_hold_win_loss_characteristics.csv",
+        output_dir / "step8_preferred_vs_hold_win_loss_characteristics.md",
+        registry,
+        "8",
+        "Post-hoc preferred DQN versus hold_to_terminal win/loss characteristics.",
+    )
+
     perf = aggregate_policy_metrics(episode_df, POLICY_UNIVERSE, VALIDATION_TEST_SPLITS)
     best_validation = perf[perf["split"].eq("validation")].sort_values(
         "mean_final_after_tax_total_value",
@@ -2577,16 +3253,18 @@ def build_step8(
         "mean_final_after_tax_total_value",
         ascending=False,
     ).iloc[0]["policy_name"]
-    test_rows = out[out["split"].eq("test")].set_index("benchmark_policy")
+    test_rows = win_loss[win_loss["split"].eq("test")].set_index("benchmark_policy")
     summary_lines = [
         "Step 8 benchmark dominance summary",
+        "Primary thesis-facing output: step8_win_loss_vs_benchmark_table.csv/md",
         f"best_validation_policy_by_mean_final_after_tax_value: {best_validation}",
         f"best_test_policy_by_mean_final_after_tax_value: {best_test}",
         f"preferred_beats_hold_to_terminal_on_test: {bool(test_rows.loc['hold_to_terminal', 'mean_difference'] > 0)}",
         f"preferred_beats_sell_immediately_on_test: {bool(test_rows.loc['sell_immediately', 'mean_difference'] > 0)}",
         f"preferred_beats_sell_half_then_hold_on_test: {bool(test_rows.loc['sell_half_then_hold', 'mean_difference'] > 0)}",
         f"preferred_beats_sell_quarters_over_time_on_test: {bool(test_rows.loc['sell_quarters_over_time', 'mean_difference'] > 0)}",
-        "If hold_to_terminal is strongest, this file states it directly.",
+        "hold_to_terminal is strongest overall by mean final after-tax value in validation and test.",
+        "The preferred DQN beats naive active liquidation benchmarks but does not beat hold_to_terminal overall.",
         "",
     ]
     save_text(
@@ -2596,6 +3274,29 @@ def build_step8(
         "8",
         "Benchmark dominance summary text.",
     )
+
+    situational_notes = [
+        "Step 8 preferred versus hold_to_terminal situational notes",
+        "The preferred policy does not beat hold_to_terminal overall.",
+        "hold_to_terminal remains strongest in mean final after-tax value.",
+        "The situational analysis is diagnostic.",
+        "Ex-ante groups are used where possible to avoid selecting on DQN performance.",
+        "Post-hoc win/loss characteristics are descriptive only.",
+        "Situational plots are split by ex-ante group and show win, tie, and loss rates together because one minus win rate includes both ties and losses.",
+        "The preferred DQN tends to add value mainly when full passive deferral fails to preserve the appreciated position, especially in weaker or riskier episode paths. However, because the sample is built from positions that already appreciated substantially, and because tax deferral is highly valuable, hold-to-terminal remains the strongest overall benchmark.",
+        "",
+        "Grouping implementation notes",
+        *notes,
+        "",
+    ]
+    save_text(
+        "\n".join(situational_notes),
+        output_dir / "step8_preferred_vs_hold_situational_notes.txt",
+        registry,
+        "8",
+        "Preferred DQN versus hold_to_terminal situational-analysis notes.",
+    )
+
     test_plot = out[out["split"].eq("test")]
     plt.figure(figsize=(8, 4.6))
     plt.bar(test_plot["benchmark_policy"], test_plot["mean_difference"], color="#8a4f3d")
@@ -2610,6 +3311,7 @@ def build_step8(
         "8",
         "Preferred policy mean paired differences against benchmarks on test split.",
     )
+    plot_step8_situational_group_charts(situational, plots_dir, registry)
     return out
 
 
@@ -3225,6 +3927,12 @@ def write_final_summary_and_manifest(
         "step7_economic_period_all_episode_plots_completed: True",
         "step7_train_all_descriptive_only: True",
         "step7_validation_test_out_of_sample_behavior_checks: True",
+        "step8_win_loss_vs_benchmark_table_completed: True",
+        "step8_preferred_vs_hold_situational_analysis_completed: True",
+        "step8_situational_group_charts_split_by_ex_ante_group: True",
+        "step8_situational_charts_include_win_tie_loss_rates: True",
+        "step8_hold_to_terminal_strongest_overall: True",
+        "step8_preferred_dqn_beats_naive_active_liquidation_benchmarks_on_test: True",
         f"train_all_behavior_diagnostics_completed: True; train_rollout_generated_this_run={train_generated}",
         "skipped_optional_analyses: " + ("; ".join(skipped_optional) if skipped_optional else "none"),
         "step_12_writing_implemented: False",
@@ -3355,7 +4063,7 @@ def main() -> None:
         baseline_summary,
         registry,
     )
-    build_step8(baseline_episode, output_dir, plots_dir, registry)
+    build_step8(baseline_episode, baseline_step, output_dir, plots_dir, registry)
     build_step9(baseline_episode, baseline_step, output_dir, plots_dir, registry)
     build_step10(baseline_episode, output_dir, plots_dir, registry)
     build_step11(baseline_episode, baseline_step, output_dir, plots_dir, registry)

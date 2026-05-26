@@ -1,0 +1,19 @@
+Step 8 preferred versus hold_to_terminal situational notes
+The preferred policy does not beat hold_to_terminal overall.
+hold_to_terminal remains strongest in mean final after-tax value.
+The situational analysis is diagnostic.
+Ex-ante groups are used where possible to avoid selecting on DQN performance.
+Post-hoc win/loss characteristics are descriptive only.
+Situational plots are split by ex-ante group and show win, tie, and loss rates together because one minus win rate includes both ties and losses.
+The preferred DQN tends to add value mainly when full passive deferral fails to preserve the appreciated position, especially in weaker or riskier episode paths. However, because the sample is built from positions that already appreciated substantially, and because tax deferral is highly valuable, hold-to-terminal remains the strongest overall benchmark.
+
+Grouping implementation notes
+hold_terminal_outcome_bucket uses fixed hold_to_terminal final after-tax value buckets: <=0.30, 0.30-0.45, 0.45-0.60, >0.60.
+hold_terminal_weak is True when hold_to_terminal final value <= 0.30.
+drawdown_bucket uses tertiles of hold_to_terminal path drawdown proxy: first after-tax path value minus minimum after-tax path value.
+volatility_bucket uses tertiles of hold_to_terminal daily after-tax path percent-change volatility.
+tax_transition_distance_bucket uses tertiles of days from the first rollout date to tax_transition_date; lower values are near_transition.
+economic_period reuses the Step 7 calendar-year mapping.
+episode_start_year_bucket uses the first hold_to_terminal rollout year.
+sector grouping skipped because metadata was unavailable.
+industry grouping skipped because metadata was unavailable.
