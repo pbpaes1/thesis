@@ -12,6 +12,7 @@ import argparse
 import concurrent.futures
 import json
 import sys
+from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
@@ -32,10 +33,7 @@ FINAL_RUN_NAME = "train_reward_c_lite_v5_full"
 DEFAULT_RUN_DIR = PROJECT_ROOT / "runs" / FINAL_RUN_NAME
 DEFAULT_PREFERRED_POLICY = "trained_dqn_first_sale_margin_0p070_normal_0p020"
 DEFAULT_EPISODE_MARKET_CAP_PATH = (
-    PROJECT_ROOT / "data" / "metadata" / "episode_market_cap_at_entry.csv"
-)
-DEFAULT_FALLBACK_MARKET_CAP_PATH = (
-    PROJECT_ROOT / "data" / "metadata" / "ticker_market_cap_current_fallback.csv"
+    PROJECT_ROOT / "data" / "metadata" / "ticker_market_cap_point_in_time_yfinance.csv"
 )
 PRIMARY_SPLITS = ["validation", "test"]
 POLICIES = [
@@ -129,128 +127,221 @@ def yfinance_symbol(ticker: str) -> str:
     return ticker.replace(".", "-")
 
 
-def fetch_one_market_cap(ticker: str) -> dict[str, Any]:
+POINT_IN_TIME_CACHE_COLUMNS = [
+    "episode_id",
+    "ticker",
+    "episode_entry_date",
+    "price_date_used",
+    "close_price_asof_entry",
+    "shares_date_used",
+    "shares_outstanding_asof_entry",
+    "market_cap_at_entry",
+    "market_cap_source",
+    "market_cap_missing_reason",
+]
+
+
+def normalize_market_cap_cache(path: Path) -> pd.DataFrame:
+    if not path.exists():
+        return pd.DataFrame(columns=POINT_IN_TIME_CACHE_COLUMNS)
+    cache = pd.read_csv(path, low_memory=False)
+    for column in POINT_IN_TIME_CACHE_COLUMNS:
+        if column not in cache.columns:
+            cache[column] = np.nan if column not in {"market_cap_source", "market_cap_missing_reason"} else ""
+    cache = cache[POINT_IN_TIME_CACHE_COLUMNS].copy()
+    cache["episode_id"] = cache["episode_id"].astype(str)
+    cache["ticker"] = cache["ticker"].astype(str).str.strip()
+    for column in ["episode_entry_date", "price_date_used", "shares_date_used"]:
+        cache[column] = pd.to_datetime(cache[column], errors="coerce").dt.tz_localize(None)
+    for column in [
+        "close_price_asof_entry",
+        "shares_outstanding_asof_entry",
+        "market_cap_at_entry",
+    ]:
+        cache[column] = pd.to_numeric(cache[column], errors="coerce")
+    cache["market_cap_source"] = cache["market_cap_source"].fillna("").astype(str)
+    cache["market_cap_missing_reason"] = cache["market_cap_missing_reason"].fillna("").astype(str)
+    return cache.drop_duplicates("episode_id", keep="last")
+
+
+def _as_naive_datetime_index(index: pd.Index) -> pd.DatetimeIndex:
+    dt_index = pd.to_datetime(index, errors="coerce")
+    if getattr(dt_index, "tz", None) is not None:
+        dt_index = dt_index.tz_convert(None)
+    return pd.DatetimeIndex(dt_index).tz_localize(None) if getattr(dt_index, "tz", None) is not None else pd.DatetimeIndex(dt_index)
+
+
+def _latest_observation_on_or_before(
+    series: pd.Series,
+    asof_date: pd.Timestamp,
+) -> tuple[pd.Timestamp | pd.NaT, float]:
+    valid = series.dropna().sort_index()
+    if valid.empty or pd.isna(asof_date):
+        return pd.NaT, np.nan
+    positions = valid.index.searchsorted(asof_date, side="right") - 1
+    if positions < 0:
+        return pd.NaT, np.nan
+    return pd.Timestamp(valid.index[positions]), float(valid.iloc[positions])
+
+
+def fetch_ticker_point_in_time_market_caps(
+    ticker: str,
+    episodes: pd.DataFrame,
+) -> list[dict[str, Any]]:
     try:
         import yfinance as yf
     except ImportError as exc:
-        return {
-            "ticker": ticker,
-            "current_market_cap": np.nan,
-            "metadata_source": "yfinance.Ticker.fast_info.market_cap",
-            "metadata_fetch_status": "failed",
-            "metadata_fetch_error": f"yfinance import failed: {exc}",
-        }
+        reason = f"yfinance import failed: {exc}"
+        return [
+            market_cap_missing_row(row, reason)
+            for row in episodes.itertuples(index=False)
+        ]
+
+    ticker = str(ticker)
+    yf_ticker = yf.Ticker(yfinance_symbol(ticker))
+    min_entry = pd.to_datetime(episodes["episode_entry_date"]).min()
+    max_entry = pd.to_datetime(episodes["episode_entry_date"]).max()
+    price_series = pd.Series(dtype=float)
+    shares_series = pd.Series(dtype=float)
+    price_error = ""
+    shares_error = ""
+
     try:
-        fast_info = yf.Ticker(yfinance_symbol(ticker)).fast_info
-        market_cap = getattr(fast_info, "market_cap", np.nan)
-        market_cap = float(market_cap) if pd.notna(market_cap) else np.nan
-        if not np.isfinite(market_cap) or market_cap <= 0:
-            info = yf.Ticker(yfinance_symbol(ticker)).get_info()
-            if not isinstance(info, dict):
-                raise ValueError("missing or non-positive market_cap")
-            market_cap = info.get("marketCap")
-            market_cap = float(market_cap) if pd.notna(market_cap) else np.nan
-            if not np.isfinite(market_cap) or market_cap <= 0:
-                shares = info.get("sharesOutstanding")
-                price = info.get("currentPrice") or info.get("regularMarketPrice")
-                if pd.notna(shares) and pd.notna(price):
-                    market_cap = float(shares) * float(price)
-            if not np.isfinite(market_cap) or market_cap <= 0:
-                raise ValueError("missing or non-positive market_cap")
-        return {
-            "ticker": ticker,
-            "current_market_cap": market_cap,
-            "metadata_source": "yfinance.Ticker.fast_info.market_cap",
-            "metadata_fetch_status": "success",
-            "metadata_fetch_error": "",
-        }
+        price_start = (min_entry - timedelta(days=14)).strftime("%Y-%m-%d")
+        price_end = (max_entry + timedelta(days=1)).strftime("%Y-%m-%d")
+        history = yf_ticker.history(
+            start=price_start,
+            end=price_end,
+            auto_adjust=False,
+            actions=False,
+        )
+        if isinstance(history, pd.DataFrame) and "Close" in history.columns:
+            price_series = pd.Series(
+                pd.to_numeric(history["Close"], errors="coerce").to_numpy(),
+                index=_as_naive_datetime_index(history.index),
+                dtype=float,
+            ).dropna()
     except Exception as exc:
-        return {
-            "ticker": ticker,
-            "current_market_cap": np.nan,
-            "metadata_source": "yfinance.Ticker.fast_info.market_cap",
-            "metadata_fetch_status": "failed",
-            "metadata_fetch_error": str(exc),
-        }
+        price_error = str(exc)
+
+    try:
+        shares_end = (max_entry + timedelta(days=1)).strftime("%Y-%m-%d")
+        shares = yf_ticker.get_shares_full(start="1990-01-01", end=shares_end)
+        if isinstance(shares, pd.Series):
+            shares_series = pd.Series(
+                pd.to_numeric(shares, errors="coerce").to_numpy(),
+                index=_as_naive_datetime_index(shares.index),
+                dtype=float,
+            ).dropna()
+        elif isinstance(shares, pd.DataFrame) and not shares.empty:
+            column = "Shares" if "Shares" in shares.columns else shares.columns[0]
+            shares_series = pd.Series(
+                pd.to_numeric(shares[column], errors="coerce").to_numpy(),
+                index=_as_naive_datetime_index(shares.index),
+                dtype=float,
+            ).dropna()
+    except Exception as exc:
+        shares_error = str(exc)
+
+    rows: list[dict[str, Any]] = []
+    for row in episodes.sort_values("episode_entry_date").itertuples(index=False):
+        entry_date = pd.Timestamp(row.episode_entry_date)
+        price_date, close_price = _latest_observation_on_or_before(price_series, entry_date)
+        shares_date, shares_outstanding = _latest_observation_on_or_before(shares_series, entry_date)
+        missing_reasons: list[str] = []
+        if pd.isna(price_date) or not np.isfinite(close_price) or close_price <= 0:
+            missing_reasons.append("missing_close_price_on_or_before_entry")
+            if price_error:
+                missing_reasons.append("price_fetch_error=" + price_error[:180])
+        if pd.isna(shares_date) or not np.isfinite(shares_outstanding) or shares_outstanding <= 0:
+            missing_reasons.append("missing_shares_outstanding_on_or_before_entry")
+            if shares_error:
+                missing_reasons.append("shares_fetch_error=" + shares_error[:180])
+        market_cap = close_price * shares_outstanding if not missing_reasons else np.nan
+        rows.append(
+            {
+                "episode_id": row.episode_id,
+                "ticker": ticker,
+                "episode_entry_date": entry_date.date().isoformat(),
+                "price_date_used": ""
+                if pd.isna(price_date)
+                else pd.Timestamp(price_date).date().isoformat(),
+                "close_price_asof_entry": close_price,
+                "shares_date_used": ""
+                if pd.isna(shares_date)
+                else pd.Timestamp(shares_date).date().isoformat(),
+                "shares_outstanding_asof_entry": shares_outstanding,
+                "market_cap_at_entry": market_cap,
+                "market_cap_source": "yfinance_point_in_time_proxy",
+                "market_cap_missing_reason": ";".join(missing_reasons),
+            }
+        )
+    return rows
 
 
-def normalize_fallback_cache(path: Path) -> pd.DataFrame:
-    columns = [
-        "ticker",
-        "current_market_cap",
-        "metadata_source",
-        "metadata_fetch_status",
-        "metadata_fetch_error",
-    ]
-    if not path.exists():
-        return pd.DataFrame(columns=columns)
-    cache = pd.read_csv(path, low_memory=False)
-    for column in columns:
-        if column not in cache.columns:
-            cache[column] = ""
-    cache["ticker"] = cache["ticker"].astype(str).str.strip()
-    cache["current_market_cap"] = pd.to_numeric(
-        cache["current_market_cap"], errors="coerce"
-    )
-    cache = cache[cache["ticker"].ne("")]
-    cache = cache.drop_duplicates("ticker", keep="last")
-    return cache[columns]
+def market_cap_missing_row(row: Any, reason: str) -> dict[str, Any]:
+    entry_date = pd.Timestamp(row.episode_entry_date)
+    return {
+        "episode_id": row.episode_id,
+        "ticker": row.ticker,
+        "episode_entry_date": entry_date.date().isoformat(),
+        "price_date_used": "",
+        "close_price_asof_entry": np.nan,
+        "shares_date_used": "",
+        "shares_outstanding_asof_entry": np.nan,
+        "market_cap_at_entry": np.nan,
+        "market_cap_source": "yfinance_point_in_time_proxy",
+        "market_cap_missing_reason": reason,
+    }
 
 
-def ensure_current_market_cap_fallback(
-    tickers: list[str],
+def ensure_point_in_time_market_cap_cache(
+    episode_meta: pd.DataFrame,
     *,
     path: Path,
     max_workers: int,
     force_refresh: bool,
 ) -> pd.DataFrame:
     path.parent.mkdir(parents=True, exist_ok=True)
-    cache = normalize_fallback_cache(path)
-    if force_refresh:
-        cached_ok: set[str] = set()
-    else:
-        cached_ok = set(
-            cache.loc[
-                cache["ticker"].isin(tickers)
-                & cache["current_market_cap"].notna()
-                & cache["current_market_cap"].gt(0),
-                "ticker",
-            ]
-        )
-    missing = sorted(set(tickers) - cached_ok)
-    if missing:
-        rows: list[dict[str, Any]] = []
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(fetch_one_market_cap, ticker): ticker for ticker in missing}
-            for future in concurrent.futures.as_completed(futures):
-                rows.append(future.result())
-        fetched = pd.DataFrame(rows)
-        cache = pd.concat([cache[~cache["ticker"].isin(missing)], fetched], ignore_index=True)
-        cache = cache.drop_duplicates("ticker", keep="last").sort_values("ticker")
-        cache.to_csv(path, index=False)
-    required = cache[cache["ticker"].isin(tickers)].copy()
-    if required.empty or required["current_market_cap"].notna().sum() == 0:
-        raise ValueError(
-            "Market-cap classification cannot be created. Provide a point-in-time "
-            f"episode-level file at {relative_project_path(DEFAULT_EPISODE_MARKET_CAP_PATH)} "
-            "with columns episode_id, market_cap_at_entry, or provide a fallback file "
-            f"at {relative_project_path(path)} with ticker,current_market_cap."
-        )
-    missing_caps = sorted(
-        set(tickers)
-        - set(
-            required.loc[
-                required["current_market_cap"].notna()
-                & required["current_market_cap"].gt(0),
-                "ticker",
-            ]
-        )
+    episode_meta = episode_meta[["episode_id", "ticker", "episode_entry_date"]].copy()
+    episode_meta["episode_id"] = episode_meta["episode_id"].astype(str)
+    episode_meta["ticker"] = episode_meta["ticker"].astype(str).str.strip()
+    episode_meta["episode_entry_date"] = pd.to_datetime(
+        episode_meta["episode_entry_date"], errors="coerce"
     )
-    if missing_caps:
+    if episode_meta["episode_entry_date"].isna().any():
+        raise ValueError("Episode entry dates are required for point-in-time market-cap construction.")
+    cache = normalize_market_cap_cache(path)
+    required_ids = set(episode_meta["episode_id"])
+    if force_refresh:
+        cached_ids: set[str] = set()
+    else:
+        cached_ids = set(cache.loc[cache["episode_id"].isin(required_ids), "episode_id"])
+    missing_meta = episode_meta[~episode_meta["episode_id"].isin(cached_ids)].copy()
+    if not missing_meta.empty:
+        rows: list[dict[str, Any]] = []
+        grouped = [(ticker, group.copy()) for ticker, group in missing_meta.groupby("ticker", sort=True)]
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(fetch_ticker_point_in_time_market_caps, ticker, group): ticker
+                for ticker, group in grouped
+            }
+            for future in concurrent.futures.as_completed(futures):
+                rows.extend(future.result())
+        fetched = pd.DataFrame(rows, columns=POINT_IN_TIME_CACHE_COLUMNS)
+        cache = pd.concat(
+            [cache[~cache["episode_id"].isin(set(fetched["episode_id"].astype(str)))], fetched],
+            ignore_index=True,
+        )
+        cache = cache.drop_duplicates("episode_id", keep="last").sort_values(["ticker", "episode_entry_date", "episode_id"])
+        cache.to_csv(path, index=False)
+        cache = normalize_market_cap_cache(path)
+    required = cache[cache["episode_id"].isin(required_ids)].copy()
+    missing_ids = sorted(required_ids - set(required["episode_id"]))
+    if missing_ids:
         raise ValueError(
-            "Market-cap classification cannot be created for all required tickers. "
-            "Missing/non-positive current_market_cap for ticker(s): "
-            + ", ".join(missing_caps[:50])
+            "Point-in-time market-cap cache is incomplete for episode_id(s): "
+            + ", ".join(missing_ids[:20])
         )
     return required
 
@@ -297,9 +388,8 @@ def load_raw_episode_metadata(run_dir: Path) -> pd.DataFrame:
         )
     )
     summary["ticker"] = summary["ticker"].fillna(summary["episode_id"].map(parse_ticker))
-    summary["entry_date"] = summary["simulated_purchase_date"].where(
-        summary["simulated_purchase_date"].notna(), summary["episode_start_date"]
-    )
+    summary["entry_date"] = summary["episode_start_date"]
+    summary["episode_entry_date"] = summary["episode_start_date"]
     summary["price_at_entry"] = summary["price_at_entry"].where(
         summary["price_at_entry"].notna(), summary["close_at_entry"]
     )
@@ -311,9 +401,8 @@ def load_episode_market_cap(
     run_dir: Path,
     required_episode_ids: set[str],
     episode_market_cap_path: Path,
-    fallback_market_cap_path: Path,
     max_workers: int,
-    force_refresh_fallback: bool,
+    force_refresh: bool,
 ) -> tuple[pd.DataFrame, str, list[str]]:
     notes: list[str] = []
     raw_meta = load_raw_episode_metadata(run_dir)
@@ -321,54 +410,29 @@ def load_episode_market_cap(
     raw_meta = raw_meta[raw_meta["episode_id"].isin(required_episode_ids)].copy()
     if raw_meta.empty:
         raise ValueError("Market-cap classification cannot be created: no raw metadata matched required validation/test episode_id values.")
-    if episode_market_cap_path.exists():
-        market = pd.read_csv(episode_market_cap_path, low_memory=False)
-        if "episode_id" in market.columns and "market_cap_at_entry" in market.columns:
-            market = market[["episode_id", "market_cap_at_entry"]].copy()
-            market["episode_id"] = market["episode_id"].astype(str)
-            market["market_cap_at_entry"] = pd.to_numeric(
-                market["market_cap_at_entry"], errors="coerce"
-            )
-            merged = raw_meta.merge(market, on="episode_id", how="left", validate="one_to_one")
-            if merged["market_cap_at_entry"].isna().any():
-                missing = int(merged["market_cap_at_entry"].isna().sum())
-                raise ValueError(
-                    f"Point-in-time market-cap file is missing {missing} episode_id rows: "
-                    f"{relative_project_path(episode_market_cap_path)}"
-                )
-            source = "point_in_time_episode_market_cap_at_entry"
-            notes.append(
-                "market_cap_source_file: "
-                + relative_project_path(episode_market_cap_path)
-            )
-            return merged, source, notes
-        raise ValueError(
-            "Market-cap file exists but does not contain required columns "
-            f"episode_id and market_cap_at_entry: {relative_project_path(episode_market_cap_path)}"
-        )
-
-    tickers = sorted(raw_meta["ticker"].dropna().astype(str).unique())
-    fallback = ensure_current_market_cap_fallback(
-        tickers,
-        path=fallback_market_cap_path,
+    market = ensure_point_in_time_market_cap_cache(
+        raw_meta[["episode_id", "ticker", "episode_entry_date"]],
+        path=episode_market_cap_path,
         max_workers=max_workers,
-        force_refresh=force_refresh_fallback,
+        force_refresh=force_refresh,
     )
     merged = raw_meta.merge(
-        fallback[["ticker", "current_market_cap", "metadata_source"]],
-        on="ticker",
+        market[POINT_IN_TIME_CACHE_COLUMNS],
+        on=["episode_id", "ticker", "episode_entry_date"],
         how="left",
-        validate="many_to_one",
+        validate="one_to_one",
     )
-    merged["market_cap_at_entry"] = merged["current_market_cap"]
-    source = "non_point_in_time_current_market_cap_sensitivity"
+    source = "yfinance_point_in_time_proxy"
     notes.extend(
         [
-            "point_in_time_market_cap_unavailable: True",
-            "fallback_market_cap_source_file: "
-            + relative_project_path(fallback_market_cap_path),
-            "fallback_market_cap_source: yfinance.Ticker.fast_info.market_cap with get_info marketCap/sharesOutstanding fallback",
-            "fallback_label: non-point-in-time current-market-cap sensitivity",
+            "market_cap_source_file: " + relative_project_path(episode_market_cap_path),
+            "market_cap_formula: close_price_asof_episode_entry * shares_outstanding_asof_episode_entry",
+            "price_source: yfinance Ticker.history(auto_adjust=False), Close",
+            "shares_source: yfinance Ticker.get_shares_full",
+            "no_future_shares_used: True",
+            "no_future_prices_used: True",
+            "point_in_time_proxy_caveat: yfinance historical shares may be sparse/revised, so this is a point-in-time proxy rather than an audited fundamentals database.",
+            "prior_current_market_cap_analysis_replaced: True",
         ]
     )
     return merged, source, notes
@@ -499,14 +563,19 @@ def build_analysis_base(
         "episode_id",
         "ticker",
         "entry_date",
+        "episode_entry_date",
         "price_at_entry",
+        "price_date_used",
+        "close_price_asof_entry",
+        "shares_date_used",
+        "shares_outstanding_asof_entry",
         "market_cap_at_entry",
+        "market_cap_source",
+        "market_cap_missing_reason",
     ]
     base = base.merge(
         market_meta[meta_keep], on="episode_id", how="left", validate="many_to_one"
     )
-    if base["market_cap_at_entry"].isna().any() or base["market_cap_at_entry"].le(0).any():
-        raise ValueError("Market-cap classification cannot be created for every paired episode.")
     sharpe_path = output_dir / "step3b_episode_eaat_sharpe_metrics.csv"
     if sharpe_path.exists():
         sharpe = pd.read_csv(
@@ -580,6 +649,81 @@ def assign_quintile_bucket(market_cap: pd.Series) -> pd.Series:
         raise ValueError("Market-cap quintile classification cannot be created with fewer than 5 values.")
     ranks = values.rank(method="first")
     return pd.qcut(ranks, q=5, labels=QUINTILE_BUCKETS).astype(object)
+
+
+def assign_quintile_bucket_by_split(base: pd.DataFrame) -> pd.Series:
+    output = pd.Series(index=base.index, dtype=object)
+    for split in PRIMARY_SPLITS:
+        split_idx = base.index[base["split"].eq(split)]
+        if len(split_idx) < 5:
+            raise ValueError(
+                f"Market-cap quintile classification cannot be created for {split}; fewer than 5 non-missing values."
+            )
+        output.loc[split_idx] = assign_quintile_bucket(base.loc[split_idx, "market_cap_at_entry"])
+    return output
+
+
+def validate_market_cap_proxy(base: pd.DataFrame) -> None:
+    for column in ["episode_entry_date", "price_date_used", "shares_date_used"]:
+        base[column] = pd.to_datetime(base[column], errors="coerce")
+    usable = base["market_cap_at_entry"].notna()
+    if usable.sum() == 0:
+        raise ValueError(
+            "Market-cap classification cannot be created: no validation/test episode has "
+            "a positive yfinance point-in-time proxy. Required columns are episode_id, ticker, "
+            "episode_entry_date, close_price_asof_entry, shares_outstanding_asof_entry, and market_cap_at_entry."
+        )
+    future_price = usable & base["price_date_used"].gt(base["episode_entry_date"])
+    if future_price.any():
+        raise ValueError("Point-in-time validation failed: price_date_used is after episode_entry_date.")
+    future_shares = usable & base["shares_date_used"].gt(base["episode_entry_date"])
+    if future_shares.any():
+        raise ValueError("Point-in-time validation failed: shares_date_used is after episode_entry_date.")
+    non_positive = usable & base["market_cap_at_entry"].le(0)
+    if non_positive.any():
+        raise ValueError("Point-in-time validation failed: market_cap_at_entry must be positive when present.")
+    bad_source = usable & ~base["market_cap_source"].eq("yfinance_point_in_time_proxy")
+    if bad_source.any():
+        raise ValueError("Step 9 market-cap outputs must use yfinance_point_in_time_proxy, not current market cap.")
+
+
+def compute_market_cap_coverage(base: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    for split in PRIMARY_SPLITS:
+        data = base[base["split"].eq(split)]
+        usable = data["market_cap_at_entry"].notna() & data["market_cap_at_entry"].gt(0)
+        total = int(len(data))
+        rows.append(
+            {
+                "split": split,
+                "total_paired_episodes": total,
+                "episodes_with_market_cap_at_entry": int(usable.sum()),
+                "coverage_pct": float(usable.mean()) if total else np.nan,
+                "missing_market_cap_episode_count": int((~usable).sum()),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def compute_missing_reasons(base: pd.DataFrame) -> list[str]:
+    missing = base[
+        base["market_cap_at_entry"].isna() | base["market_cap_at_entry"].le(0)
+    ].copy()
+    if missing.empty:
+        return ["missing_market_cap_reasons: none"]
+    rows = ["missing_market_cap_reasons:"]
+    reason_counts = (
+        missing.assign(
+            market_cap_missing_reason=missing["market_cap_missing_reason"].replace("", "unknown")
+        )
+        .groupby(["split", "market_cap_missing_reason"], dropna=False)
+        .size()
+        .reset_index(name="episode_count")
+        .sort_values(["split", "episode_count"], ascending=[True, False])
+    )
+    for row in reason_counts.itertuples(index=False):
+        rows.append(f"{row.split},{row.market_cap_missing_reason},{row.episode_count}")
+    return rows
 
 
 def summarize_bucket(
@@ -665,8 +809,8 @@ def summarize_bucket(
                     "median_TA_EAAT_Sharpe_preferred_dqn": group[
                         "preferred_TA_EAAT_Sharpe"
                     ].median(),
-                    "mean_market_cap": group["market_cap_at_entry"].mean(),
-                    "median_market_cap": group["market_cap_at_entry"].median(),
+                    "mean_market_cap_at_entry": group["market_cap_at_entry"].mean(),
+                    "median_market_cap_at_entry": group["market_cap_at_entry"].median(),
                     "sparse_bucket_warning": bool(len(group) < 30),
                 }
             )
@@ -714,6 +858,8 @@ def write_notes(
     preferred_policy: str,
     market_cap_source: str,
     market_cap_notes: list[str],
+    coverage_df: pd.DataFrame,
+    missing_reason_lines: list[str],
     standard_df: pd.DataFrame,
     quintile_df: pd.DataFrame,
 ) -> None:
@@ -728,16 +874,33 @@ def write_notes(
         "Market cap should be measured at episode entry date to avoid look-ahead bias.",
         f"market_cap_source_used: {market_cap_source}",
         *market_cap_notes,
-        "If point-in-time market cap was unavailable, this output is labeled as a non-point-in-time sensitivity analysis.",
+        "This replaces the earlier current-market-cap sensitivity because current market cap can introduce look-ahead bias.",
+        "Episodes without a usable close price and historical shares observation on/before entry are excluded from market-cap bucket calculations and reported in coverage.",
         "Standard buckets may be imbalanced because the universe is S&P 500-like.",
-        "Quintile buckets are included to provide a balanced within-sample size comparison.",
+        "Quintile buckets are computed separately within each split using only episodes with non-missing market_cap_at_entry.",
         "Final after-tax value remains the primary metric.",
         "EAAT and TA-EAAT Sharpe, if included, are secondary diagnostics.",
         "The test split remains the main thesis evidence; validation is supportive.",
         "Train and all splits are not included in this Step 9 market-cap output.",
         "",
-        "standard_bucket_counts:",
+        "coverage:",
     ]
+    for row in coverage_df.itertuples(index=False):
+        lines.append(
+            f"{row.split},{row.episodes_with_market_cap_at_entry}/{row.total_paired_episodes},"
+            f"{row.coverage_pct:.6f},missing={row.missing_market_cap_episode_count}"
+        )
+    low_coverage = coverage_df["coverage_pct"].lt(0.8).any()
+    if low_coverage:
+        lines.append("coverage_warning: at least one split has market-cap coverage below 80%; interpret bucket results cautiously.")
+    lines.extend(
+        [
+            "",
+            *missing_reason_lines,
+            "",
+            "standard_bucket_counts:",
+        ]
+    )
     for row in standard_df[["split", "market_cap_bucket", "num_episodes"]].itertuples(index=False):
         lines.append(f"{row.split},{row.market_cap_bucket},{row.num_episodes}")
     lines.append("")
@@ -793,8 +956,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-dir", type=Path, default=DEFAULT_RUN_DIR)
     parser.add_argument("--preferred-policy", default=DEFAULT_PREFERRED_POLICY)
     parser.add_argument("--episode-market-cap-path", type=Path, default=DEFAULT_EPISODE_MARKET_CAP_PATH)
-    parser.add_argument("--fallback-market-cap-path", type=Path, default=DEFAULT_FALLBACK_MARKET_CAP_PATH)
-    parser.add_argument("--force-refresh-fallback", action="store_true")
+    parser.add_argument("--force-refresh-market-cap-cache", action="store_true")
     parser.add_argument("--max-workers", type=int, default=8)
     return parser.parse_args()
 
@@ -822,18 +984,25 @@ def main() -> None:
             .unique()
         ),
         episode_market_cap_path=resolve_project_path(args.episode_market_cap_path),
-        fallback_market_cap_path=resolve_project_path(args.fallback_market_cap_path),
         max_workers=max(1, int(args.max_workers)),
-        force_refresh_fallback=bool(args.force_refresh_fallback),
+        force_refresh=bool(args.force_refresh_market_cap_cache),
     )
-    base = build_analysis_base(
+    base_all = build_analysis_base(
         episode_df,
         market_meta,
         preferred_policy=args.preferred_policy,
         output_dir=output_dir,
     )
+    validate_market_cap_proxy(base_all)
+    coverage = compute_market_cap_coverage(base_all)
+    missing_reason_lines = compute_missing_reasons(base_all)
+    base = base_all[
+        base_all["market_cap_at_entry"].notna() & base_all["market_cap_at_entry"].gt(0)
+    ].copy()
+    if base.empty:
+        raise ValueError("Market-cap classification cannot be created: zero usable market_cap_at_entry rows after filtering.")
     base["standard_market_cap_bucket"] = assign_standard_bucket(base["market_cap_at_entry"])
-    base["market_cap_quintile_bucket"] = assign_quintile_bucket(base["market_cap_at_entry"])
+    base["market_cap_quintile_bucket"] = assign_quintile_bucket_by_split(base)
     if base["standard_market_cap_bucket"].isna().any() or base["market_cap_quintile_bucket"].isna().any():
         raise ValueError("Market-cap classification cannot be created for all paired episodes.")
 
@@ -864,6 +1033,8 @@ def main() -> None:
         preferred_policy=args.preferred_policy,
         market_cap_source=market_cap_source,
         market_cap_notes=market_notes,
+        coverage_df=coverage,
+        missing_reason_lines=missing_reason_lines,
         standard_df=standard,
         quintile_df=quintile,
     )

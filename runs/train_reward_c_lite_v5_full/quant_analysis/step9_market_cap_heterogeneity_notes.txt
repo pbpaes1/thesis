@@ -3,45 +3,57 @@ This is a heterogeneity / interpretability analysis, not a policy-selection step
 The preferred policy remains trained_dqn_first_sale_margin_0p070_normal_0p020.
 No retraining or reward redesign was performed.
 Market cap should be measured at episode entry date to avoid look-ahead bias.
-market_cap_source_used: non_point_in_time_current_market_cap_sensitivity
-point_in_time_market_cap_unavailable: True
-fallback_market_cap_source_file: data/metadata/ticker_market_cap_current_fallback.csv
-fallback_market_cap_source: yfinance.Ticker.fast_info.market_cap with get_info marketCap/sharesOutstanding fallback
-fallback_label: non-point-in-time current-market-cap sensitivity
-If point-in-time market cap was unavailable, this output is labeled as a non-point-in-time sensitivity analysis.
+market_cap_source_used: yfinance_point_in_time_proxy
+market_cap_source_file: data/metadata/ticker_market_cap_point_in_time_yfinance.csv
+market_cap_formula: close_price_asof_episode_entry * shares_outstanding_asof_episode_entry
+price_source: yfinance Ticker.history(auto_adjust=False), Close
+shares_source: yfinance Ticker.get_shares_full
+no_future_shares_used: True
+no_future_prices_used: True
+point_in_time_proxy_caveat: yfinance historical shares may be sparse/revised, so this is a point-in-time proxy rather than an audited fundamentals database.
+prior_current_market_cap_analysis_replaced: True
+This replaces the earlier current-market-cap sensitivity because current market cap can introduce look-ahead bias.
+Episodes without a usable close price and historical shares observation on/before entry are excluded from market-cap bucket calculations and reported in coverage.
 Standard buckets may be imbalanced because the universe is S&P 500-like.
-Quintile buckets are included to provide a balanced within-sample size comparison.
+Quintile buckets are computed separately within each split using only episodes with non-missing market_cap_at_entry.
 Final after-tax value remains the primary metric.
 EAAT and TA-EAAT Sharpe, if included, are secondary diagnostics.
 The test split remains the main thesis evidence; validation is supportive.
 Train and all splits are not included in this Step 9 market-cap output.
 
+coverage:
+validation,1493/1517,0.984179,missing=24
+test,1510/1519,0.994075,missing=9
+
+missing_market_cap_reasons:
+test,missing_shares_outstanding_on_or_before_entry,9
+validation,missing_shares_outstanding_on_or_before_entry,24
+
 standard_bucket_counts:
-validation,micro,0
-validation,small,16
-validation,mid,443
-validation,large,950
-validation,mega,108
+validation,micro,2
+validation,small,38
+validation,mid,605
+validation,large,787
+validation,mega,61
 test,micro,0
-test,small,13
-test,mid,429
-test,large,955
-test,mega,122
+test,small,4
+test,mid,514
+test,large,907
+test,mega,85
 
 quintile_bucket_counts:
-validation,Q1_smallest,314
-validation,Q2,306
-validation,Q3,303
-validation,Q4,302
-validation,Q5_largest,292
-test,Q1_smallest,294
-test,Q2,301
-test,Q3,304
-test,Q4,305
-test,Q5_largest,315
+validation,Q1_smallest,299
+validation,Q2,298
+validation,Q3,299
+validation,Q4,298
+validation,Q5_largest,299
+test,Q1_smallest,302
+test,Q2,302
+test,Q3,302
+test,Q4,302
+test,Q5_largest,302
 
 sparse_standard_buckets:
-validation,micro,0
-validation,small,16
+validation,micro,2
 test,micro,0
-test,small,13
+test,small,4
