@@ -1,0 +1,61 @@
+Step 12 DQN trigger-driver / state sensitivity notes
+Purpose: identify state variables associated with the preferred DQN moving from hold toward a sell action.
+model_run_path: runs/train_reward_c_lite_v5_full
+preferred_policy: trained_dqn_first_sale_margin_0p070_normal_0p020
+splits_analyzed: validation, test
+sell_q_margin_t = max_a_sell Q(s_t, a) - Q(s_t, hold), where sell actions are 25%, 50%, 75%, and 100%.
+Trigger events exclude automatic terminal liquidation.
+is_sell_step = chosen_action != hold and executed_fraction > 0.
+is_first_discretionary_sale = first non-terminal discretionary sale in an episode.
+crosses_normal_margin uses sell_q_margin > 0.020.
+crosses_first_sale_margin uses sell_q_margin > 0.070 before first discretionary sale.
+This analysis does not interpret raw neural-network weights. Instead, it studies the DQN's sell-vs-hold Q-value margin and observed trigger events.
+The results should be interpreted as model-sensitivity and association evidence, not causal evidence.
+No retraining, reward redesign, environment change, policy-threshold change, or preferred-policy reselection was performed.
+validation_observations: 112570
+test_observations: 85820
+test_sell_steps: 1434
+test_first_discretionary_sales: 704
+market_cap_trigger_analysis: skipped because no market-cap feature was found in the model state schema.
+
+Top 10 test features by permutation sensitivity:
+PC1: 0.0261615
+PC2: 0.023126
+PC4: 0.0183974
+PC3: 0.0179633
+PC6: 0.0168049
+PC5: 0.0162913
+PC7: 0.0162747
+bb_lower: 0.0154073
+PC8: 0.0141377
+macd_signal: 0.0140235
+
+Top 10 test features by Spearman correlation with sell Q-margin:
+days_to_tax_transition_norm: -0.214171
+macd_hist: -0.213109
+PC2: 0.207708
+macd_signal: 0.185294
+sma_20: -0.179644
+bb_middle: -0.179644
+sma_10: -0.17572
+ema_20: -0.170206
+ema_10: -0.168478
+bb_upper: -0.165525
+
+Top 10 test features by sell-vs-hold standardized difference:
+VIX_Close: 0.74621
+days_to_tax_transition_norm: -0.622488
+PC8: -0.363724
+macd: -0.332057
+macd_hist: -0.330935
+PC7: -0.316346
+WTI_Close: -0.287622
+sma_50: 0.265655
+rsi_14: -0.25997
+PC5: -0.250645
+
+Short interpretation:
+On the test split, `PC1` produces the largest average absolute change in sell Q-margin under permutation, while `days_to_tax_transition_norm` has the strongest rank association with the sell Q-margin. These diagnostics indicate which frozen state inputs the nonlinear DQN margin is most sensitive to; they do not prove that changing those variables would causally change realized performance.
+
+Warnings:
+Market-cap trigger analysis was skipped because no market-cap feature was found in the model state schema.

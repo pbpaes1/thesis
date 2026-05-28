@@ -676,5 +676,245 @@
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step10_robustness_statistical_significance_notes.txt",
     "step": "10",
     "type": "txt"
+  },
+  {
+    "description": "Step 11 long-format scenario membership classification.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_case_study_scenario_classification.csv",
+    "step": "11",
+    "type": "csv"
+  },
+  {
+    "description": "Step 11 long-format scenario membership classification.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_case_study_scenario_classification.md",
+    "step": "11",
+    "type": "md"
+  },
+  {
+    "description": "Step 11 scenario summary table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_case_study_scenario_summary.csv",
+    "step": "11",
+    "type": "csv"
+  },
+  {
+    "description": "Step 11 scenario summary table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_case_study_scenario_summary.md",
+    "step": "11",
+    "type": "md"
+  },
+  {
+    "description": "Step 11 representative candidate ranking table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_case_study_candidate_ranking.csv",
+    "step": "11",
+    "type": "csv"
+  },
+  {
+    "description": "Step 11 representative candidate ranking table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_case_study_candidate_ranking.md",
+    "step": "11",
+    "type": "md"
+  },
+  {
+    "description": "Step 11 selected case-study episodes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_selected_case_studies.csv",
+    "step": "11",
+    "type": "csv"
+  },
+  {
+    "description": "Step 11 selected case-study episodes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step11_selected_case_studies.md",
+    "step": "11",
+    "type": "md"
+  },
+  {
+    "description": "Step 11 case-study plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_studies/step11_case_01_dqn_sells_early_avoids_later_loss_test_ABNB_2023-05-25.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Step 11 case-study plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_studies/step11_case_02_dqn_sells_too_early_underperforms_hold_test_AEP_2023-10-05.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Step 11 case-study plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_studies/step11_case_03_dqn_waits_correctly_until_long_term_test_AAL_2025-04-08.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Step 11 case-study plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_studies/step11_case_05_partial_liquidation_useful_test_MDT_2023-10-27.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Step 11 case-study plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step11_case_studies/step11_case_04_dqn_behaves_like_hold_to_terminal_test_AAPL_2025-04-08.png",
+    "step": "11",
+    "type": "png"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity by standard size buckets.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_market_cap_heterogeneity_standard_buckets.csv",
+    "step": "9",
+    "type": "csv"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity by standard size buckets.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_market_cap_heterogeneity_standard_buckets.md",
+    "step": "9",
+    "type": "md"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity by within-sample quintiles.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_market_cap_heterogeneity_quintiles.csv",
+    "step": "9",
+    "type": "csv"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity by within-sample quintiles.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_market_cap_heterogeneity_quintiles.md",
+    "step": "9",
+    "type": "md"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step9_market_cap_heterogeneity_notes.txt",
+    "step": "9",
+    "type": "txt"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_market_cap_standard_preferred_minus_hold_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_market_cap_standard_win_rate_vs_hold_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_market_cap_standard_no_cut_pct_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_market_cap_standard_short_term_sold_fraction_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_market_cap_quintile_preferred_minus_hold_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Step 9 market-cap heterogeneity plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step9_market_cap_quintile_win_rate_vs_hold_test.png",
+    "step": "9",
+    "type": "png"
+  },
+  {
+    "description": "Step 12 sell-trigger versus hold state-feature summary.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_trigger_driver_feature_summary.csv",
+    "step": "12",
+    "type": "csv"
+  },
+  {
+    "description": "Step 12 sell-trigger versus hold state-feature summary.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_trigger_driver_feature_summary.md",
+    "step": "12",
+    "type": "md"
+  },
+  {
+    "description": "Step 12 DQN trigger event summary.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_trigger_event_summary.csv",
+    "step": "12",
+    "type": "csv"
+  },
+  {
+    "description": "Step 12 DQN trigger event summary.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_trigger_event_summary.md",
+    "step": "12",
+    "type": "md"
+  },
+  {
+    "description": "Step 12 Q-margin state-feature correlations.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_q_margin_feature_correlations.csv",
+    "step": "12",
+    "type": "csv"
+  },
+  {
+    "description": "Step 12 Q-margin state-feature correlations.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_q_margin_feature_correlations.md",
+    "step": "12",
+    "type": "md"
+  },
+  {
+    "description": "Step 12 Q-margin permutation sensitivity.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_permutation_sensitivity.csv",
+    "step": "12",
+    "type": "csv"
+  },
+  {
+    "description": "Step 12 Q-margin permutation sensitivity.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_permutation_sensitivity.md",
+    "step": "12",
+    "type": "md"
+  },
+  {
+    "description": "Step 12 feature-group trigger-driver summary.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_trigger_driver_group_summary.csv",
+    "step": "12",
+    "type": "csv"
+  },
+  {
+    "description": "Step 12 feature-group trigger-driver summary.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_trigger_driver_group_summary.md",
+    "step": "12",
+    "type": "md"
+  },
+  {
+    "description": "Step 12 trigger-driver notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step12_dqn_trigger_driver_notes.txt",
+    "step": "12",
+    "type": "txt"
+  },
+  {
+    "description": "Step 12 trigger-driver plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step12_top_q_margin_correlations_test.png",
+    "step": "12",
+    "type": "png"
+  },
+  {
+    "description": "Step 12 trigger-driver plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step12_top_trigger_vs_hold_feature_differences_test.png",
+    "step": "12",
+    "type": "png"
+  },
+  {
+    "description": "Step 12 trigger-driver plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step12_top_permutation_sensitivity_test.png",
+    "step": "12",
+    "type": "png"
+  },
+  {
+    "description": "Step 12 trigger-driver plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step12_q_margin_distribution_by_action_test.png",
+    "step": "12",
+    "type": "png"
+  },
+  {
+    "description": "Step 12 trigger-driver plot.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/plots/step12_q_margin_by_days_until_tax_transition_test.png",
+    "step": "12",
+    "type": "png"
   }
 ]

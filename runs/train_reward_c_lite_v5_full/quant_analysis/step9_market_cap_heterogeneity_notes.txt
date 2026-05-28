@@ -1,0 +1,47 @@
+Step 9 market-cap heterogeneity notes
+This is a heterogeneity / interpretability analysis, not a policy-selection step.
+The preferred policy remains trained_dqn_first_sale_margin_0p070_normal_0p020.
+No retraining or reward redesign was performed.
+Market cap should be measured at episode entry date to avoid look-ahead bias.
+market_cap_source_used: non_point_in_time_current_market_cap_sensitivity
+point_in_time_market_cap_unavailable: True
+fallback_market_cap_source_file: data/metadata/ticker_market_cap_current_fallback.csv
+fallback_market_cap_source: yfinance.Ticker.fast_info.market_cap with get_info marketCap/sharesOutstanding fallback
+fallback_label: non-point-in-time current-market-cap sensitivity
+If point-in-time market cap was unavailable, this output is labeled as a non-point-in-time sensitivity analysis.
+Standard buckets may be imbalanced because the universe is S&P 500-like.
+Quintile buckets are included to provide a balanced within-sample size comparison.
+Final after-tax value remains the primary metric.
+EAAT and TA-EAAT Sharpe, if included, are secondary diagnostics.
+The test split remains the main thesis evidence; validation is supportive.
+Train and all splits are not included in this Step 9 market-cap output.
+
+standard_bucket_counts:
+validation,micro,0
+validation,small,16
+validation,mid,443
+validation,large,950
+validation,mega,108
+test,micro,0
+test,small,13
+test,mid,429
+test,large,955
+test,mega,122
+
+quintile_bucket_counts:
+validation,Q1_smallest,314
+validation,Q2,306
+validation,Q3,303
+validation,Q4,302
+validation,Q5_largest,292
+test,Q1_smallest,294
+test,Q2,301
+test,Q3,304
+test,Q4,305
+test,Q5_largest,315
+
+sparse_standard_buckets:
+validation,micro,0
+validation,small,16
+test,micro,0
+test,small,13

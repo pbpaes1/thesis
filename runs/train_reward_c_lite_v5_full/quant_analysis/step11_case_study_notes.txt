@@ -1,1 +1,20 @@
-Step 11 case-study notes
+Step 11 case-study episode diagnostics notes
+Step 11 is interpretive and does not change the model.
+The preferred DQN remains trained_dqn_first_sale_margin_0p070_normal_0p020.
+Validation/test only are used for case selection.
+The scenario table is used to avoid cherry-picking.
+The candidate ranking table ranks representative episodes within each scenario before plots are selected.
+The case studies show both success and failure modes when available.
+The plots should be interpreted alongside Steps 7-10, not as standalone performance evidence.
+Final after-tax value remains the primary metric.
+The plots include benchmark paths to show whether DQN behavior is actually economically useful.
+No retraining, reward redesign, environment change, threshold reselection, or policy behavior change was performed.
+post_sale_drawdown_threshold: 0.1
+post_sale_upside_threshold: 0.1
+hold_like_abs_tolerance: 1e-06
+unrealized_gain_path_source: data/episodes/drl_episodes.parquet unrealized_gains_pct
+selected_case_count: 5
+selected_cases: 1:dqn_sells_early_avoids_later_loss:test:ABNB_2023-05-25; 2:dqn_sells_too_early_underperforms_hold:test:AEP_2023-10-05; 3:dqn_waits_correctly_until_long_term:test:AAL_2025-04-08; 4:dqn_behaves_like_hold_to_terminal:test:AAPL_2025-04-08; 5:partial_liquidation_useful:test:MDT_2023-10-27
+
+Warnings and diagnostics
+No Step 11 warnings.

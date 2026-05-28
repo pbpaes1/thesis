@@ -1,0 +1,12 @@
+| split      | feature_group       | num_features | mean_abs_spearman_corr | max_abs_spearman_corr | mean_permutation_sensitivity | max_permutation_sensitivity | top_feature_in_group        |
+| ---------- | ------------------- | ------------ | ---------------------- | --------------------- | ---------------------------- | --------------------------- | --------------------------- |
+| test       | pca_feature         | 10           | 0.09276138035          | 0.2077083897          | 0.01741694766                | 0.02616151386               | PC1                         |
+| test       | technical_indicator | 15           | 0.1571599292           | 0.2131086029          | 0.01057485599                | 0.0154073193                | bb_lower                    |
+| test       | tax_timing          | 1            | 0.2141706563           | 0.2141706563          | 0.01194534659                | 0.01194534659               | days_to_tax_transition_norm |
+| test       | macro_market        | 9            | 0.07547761899          | 0.1427881467          | 0.00793449822                | 0.009017834742              | Gold_Close                  |
+| test       | pnl_gain_path       | 1            | 0.1049010013           | 0.1049010013          | 0.003901240148               | 0.003901240148              | unrealized_gain_pct_norm    |
+| validation | pca_feature         | 10           | 0.06055560002          | 0.136165053           | 0.01650532171                | 0.02725197389               | PC1                         |
+| validation | technical_indicator | 15           | 0.1394881384           | 0.1982582104          | 0.01019526695                | 0.01453362447               | bb_lower                    |
+| validation | tax_timing          | 1            | 0.2247176915           | 0.2247176915          | 0.01278158069                | 0.01278158069               | days_to_tax_transition_norm |
+| validation | macro_market        | 9            | 0.06145334038          | 0.1421994678          | 0.008059686303               | 0.009135372104              | EUR_USD_Close               |
+| validation | pnl_gain_path       | 1            | 0.1014830657           | 0.1014830657          | 0.004704577818               | 0.004704577818              | unrealized_gain_pct_norm    |
