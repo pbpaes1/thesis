@@ -658,5 +658,23 @@
     "path": "runs/train_reward_c_lite_v5_full/quant_analysis/phase_4_11_outputs_manifest.json",
     "step": "4-11",
     "type": "json"
+  },
+  {
+    "description": "Step 10 paired robustness/statistical significance table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step10_robustness_statistical_significance.csv",
+    "step": "10",
+    "type": "csv"
+  },
+  {
+    "description": "Step 10 paired robustness/statistical significance table.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step10_robustness_statistical_significance.md",
+    "step": "10",
+    "type": "md"
+  },
+  {
+    "description": "Step 10 robustness/statistical significance notes.",
+    "path": "runs/train_reward_c_lite_v5_full/quant_analysis/step10_robustness_statistical_significance_notes.txt",
+    "step": "10",
+    "type": "txt"
   }
 ]

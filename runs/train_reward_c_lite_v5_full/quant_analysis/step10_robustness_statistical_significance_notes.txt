@@ -1,0 +1,23 @@
+Step 10 robustness / statistical significance notes
+Step 10 uses paired episode-level comparisons by episode_id.
+The primary metric is final after-tax value.
+The preferred DQN policy is trained_dqn_first_sale_margin_0p070_normal_0p020.
+Bootstrap confidence intervals are computed from paired differences, not independent policy means.
+Bootstrap settings: replications=10000, seed=42, confidence_level=95%.
+Wilcoxon signed-rank tests are secondary diagnostics.
+Exact zero differences are removed before Wilcoxon tests.
+Test split is the primary thesis evidence.
+Validation split is supportive.
+Any all split rows are diagnostic only and not primary evidence.
+No all split rows were included because no existing episode-level all split rows were used.
+Training split rows are not used as primary statistical evidence and were not included in this Step 10 table.
+These tests are robustness diagnostics, not a new model-selection procedure.
+No retraining, reward redesign, or threshold reselection was performed.
+Win, tie, and loss rates are reported as proportions and sum to approximately 1.
+source_episode_level_file: runs/train_reward_c_lite_v5_full/baselines/baseline_episode_metrics.csv
+rows_written: 14
+splits_included: validation, test
+comparisons_included: trained_dqn_first_sale_margin_0p070_normal_0p020 vs hold_to_terminal; trained_dqn_first_sale_margin_0p070_normal_0p020 vs sell_immediately; trained_dqn_first_sale_margin_0p070_normal_0p020 vs sell_half_then_hold; trained_dqn_first_sale_margin_0p070_normal_0p020 vs sell_quarters_over_time; trained_dqn_first_sale_margin_0p070_normal_0p020 vs random_policy; sensitivity_0p090_vs_hold_to_terminal; preferred_0p070_vs_sensitivity_0p090
+
+Warnings and diagnostics
+No unmatched episode warnings.
