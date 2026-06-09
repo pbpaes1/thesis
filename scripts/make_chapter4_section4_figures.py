@@ -51,14 +51,12 @@ COMPARATOR_ORDER = [
     "hold_to_terminal",
     "sell_immediately",
     "sell_half_then_hold",
-    "sell_quarters_over_time",
     "random_policy",
 ]
 COMPARATOR_LABELS = {
     "hold_to_terminal": "Hold to terminal",
     "sell_immediately": "Sell immediately",
     "sell_half_then_hold": "Sell half, then hold",
-    "sell_quarters_over_time": "Sell quarters over time",
     "random_policy": "Random policy",
 }
 PERIOD_ORDER = [
@@ -488,10 +486,14 @@ def figure_4_2_interpretation(data: pd.DataFrame) -> str:
     hold_row = data.loc[data["policy_B"] == "hold_to_terminal"].iloc[0]
     positive_comparators = data.loc[data["mean_difference"] > 0, "policy_B"].tolist()
     positive_labels = [COMPARATOR_LABELS[comparator] for comparator in positive_comparators]
+    if len(positive_labels) > 1:
+        positive_text = f"{', '.join(positive_labels[:-1])}, and {positive_labels[-1]}"
+    else:
+        positive_text = positive_labels[0]
     return (
         "On the test split, the preferred DQN is significantly below hold-to-terminal "
         f"(mean difference {hold_row['mean_difference']:.3f}) but has positive mean paired "
-        f"differences against {', '.join(positive_labels[:-1])}, and {positive_labels[-1]}."
+        f"differences against {positive_text}."
     )
 
 
@@ -549,7 +551,7 @@ def write_notes(
             "- Filters applied: `split == \"test\"`; "
             f"`policy_A == \"{PREFERRED_POLICY}\"`; "
             "`policy_B` in hold-to-terminal, sell-immediately, sell-half-then-hold, "
-            "sell-quarters-over-time, and random-policy benchmarks."
+            "and random-policy benchmarks."
         ),
         f"- Columns used: `{', '.join(FIGURE_4_2_COLUMNS)}`",
         f"- Interpretation: {figure_4_2_interpretation(figure_4_2_data)}",

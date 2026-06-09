@@ -2,9 +2,9 @@
 
 ## Figure 4.2: Paired robustness against benchmarks
 - Source file used: `runs/train_reward_c_lite_v5_full/quant_analysis/step10_robustness_statistical_significance.csv`
-- Filters applied: `split == "test"`; `policy_A == "trained_dqn_first_sale_margin_0p070_normal_0p020"`; `policy_B` in hold-to-terminal, sell-immediately, sell-half-then-hold, sell-quarters-over-time, and random-policy benchmarks.
+- Filters applied: `split == "test"`; `policy_A == "trained_dqn_first_sale_margin_0p070_normal_0p020"`; `policy_B` in hold-to-terminal, sell-immediately, sell-half-then-hold, and random-policy benchmarks.
 - Columns used: `split, policy_A, policy_B, mean_difference, mean_difference_ci_low, mean_difference_ci_high`
-- Interpretation: On the test split, the preferred DQN is significantly below hold-to-terminal (mean difference -0.044) but has positive mean paired differences against Sell immediately, Sell half, then hold, Sell quarters over time, and Random policy.
+- Interpretation: On the test split, the preferred DQN is significantly below hold-to-terminal (mean difference -0.044) but has positive mean paired differences against Sell immediately, Sell half, then hold, and Random policy.
 
 ## Figure 4.3: Preferred DQN behaviour by economic period
 - Source file used: `runs/train_reward_c_lite_v5_full/quant_analysis/step7_preferred_policy_behavior_by_economic_period.csv`
