@@ -1,0 +1,63 @@
+split,policy_name,policy_label,sale_timing_bucket,sale_timing_bucket_order,sale_event_count,sold_fraction_of_original,share_of_policy_sales_pct
+validation,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,over_180_days_before,0,248,112.0,7.382992748846408
+validation,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,91_to_180_days_before,1,602,270.75,17.84772577455504
+validation,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,31_to_90_days_before,2,284,120.0,7.910349373764008
+validation,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,8_to_30_days_before,3,288,137.5,9.063941990771259
+validation,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,1_to_7_days_before,4,67,31.0,2.0435069215557022
+validation,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,at_or_after_long_term,5,889,845.75,55.75148319050758
+validation,hold_to_terminal,Passive hold-to-terminal,at_or_after_long_term,5,1517,1517.0,100.0
+validation,sell_immediately,Naive active: sell immediately,over_180_days_before,0,622,622.0,41.00197758734344
+validation,sell_immediately,Naive active: sell immediately,91_to_180_days_before,1,262,262.0,17.270929466051417
+validation,sell_immediately,Naive active: sell immediately,31_to_90_days_before,2,298,298.0,19.64403427818062
+validation,sell_immediately,Naive active: sell immediately,8_to_30_days_before,3,164,164.0,10.81081081081081
+validation,sell_immediately,Naive active: sell immediately,1_to_7_days_before,4,166,166.0,10.94264996704021
+validation,sell_immediately,Naive active: sell immediately,at_or_after_long_term,5,5,5.0,0.3295978905735003
+validation,sell_half_then_hold,Naive active: sell half then hold,over_180_days_before,0,622,311.0,20.50098879367172
+validation,sell_half_then_hold,Naive active: sell half then hold,91_to_180_days_before,1,262,131.0,8.635464733025708
+validation,sell_half_then_hold,Naive active: sell half then hold,31_to_90_days_before,2,298,149.0,9.82201713909031
+validation,sell_half_then_hold,Naive active: sell half then hold,8_to_30_days_before,3,164,82.0,5.405405405405405
+validation,sell_half_then_hold,Naive active: sell half then hold,1_to_7_days_before,4,114,57.0,3.7574159525379036
+validation,sell_half_then_hold,Naive active: sell half then hold,at_or_after_long_term,5,1517,787.0,51.878707976268956
+validation,sell_quarters_over_time,Naive active: sell quarters,over_180_days_before,0,2449,612.25,40.35926170072511
+validation,sell_quarters_over_time,Naive active: sell quarters,91_to_180_days_before,1,1051,262.75,17.320369149637443
+validation,sell_quarters_over_time,Naive active: sell quarters,31_to_90_days_before,2,1183,295.75,19.495715227422544
+validation,sell_quarters_over_time,Naive active: sell quarters,8_to_30_days_before,3,612,153.0,10.08569545154911
+validation,sell_quarters_over_time,Naive active: sell quarters,1_to_7_days_before,4,331,82.75,5.454845088991431
+validation,sell_quarters_over_time,Naive active: sell quarters,at_or_after_long_term,5,135,110.5,7.2841133816743575
+validation,random_policy,Random benchmark,over_180_days_before,0,1224,619.5,40.83717864205669
+validation,random_policy,Random benchmark,91_to_180_days_before,1,515,259.25,17.08965062623599
+validation,random_policy,Random benchmark,31_to_90_days_before,2,572,296.25,19.528675016479895
+validation,random_policy,Random benchmark,8_to_30_days_before,3,317,161.0,10.61305207646671
+validation,random_policy,Random benchmark,1_to_7_days_before,4,203,119.25,7.860909690177984
+validation,random_policy,Random benchmark,at_or_after_long_term,5,71,61.75,4.070533948582729
+test,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,over_180_days_before,0,282,132.0,8.6899275839368
+test,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,91_to_180_days_before,1,469,219.75,14.46675444371297
+test,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,31_to_90_days_before,2,313,137.75,9.068466096115865
+test,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,8_to_30_days_before,3,297,132.75,8.739302172481896
+test,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,1_to_7_days_before,4,73,30.75,2.0243581303489138
+test,trained_dqn_first_sale_margin_0p070_normal_0p020,Preferred DQN,at_or_after_long_term,5,932,866.0,57.01119157340355
+test,hold_to_terminal,Passive hold-to-terminal,at_or_after_long_term,5,1519,1519.0,100.0
+test,sell_immediately,Naive active: sell immediately,over_180_days_before,0,593,593.0,39.0388413429888
+test,sell_immediately,Naive active: sell immediately,91_to_180_days_before,1,325,325.0,21.39565503620803
+test,sell_immediately,Naive active: sell immediately,31_to_90_days_before,2,302,302.0,19.88150098749177
+test,sell_immediately,Naive active: sell immediately,8_to_30_days_before,3,166,166.0,10.928242264647794
+test,sell_immediately,Naive active: sell immediately,1_to_7_days_before,4,99,99.0,6.5174456879526
+test,sell_immediately,Naive active: sell immediately,at_or_after_long_term,5,34,34.0,2.238314680710994
+test,sell_half_then_hold,Naive active: sell half then hold,over_180_days_before,0,593,296.5,19.5194206714944
+test,sell_half_then_hold,Naive active: sell half then hold,91_to_180_days_before,1,323,161.5,10.631994733377221
+test,sell_half_then_hold,Naive active: sell half then hold,31_to_90_days_before,2,302,151.0,9.940750493745885
+test,sell_half_then_hold,Naive active: sell half then hold,8_to_30_days_before,3,166,83.0,5.464121132323897
+test,sell_half_then_hold,Naive active: sell half then hold,1_to_7_days_before,4,65,32.5,2.1395655036208034
+test,sell_half_then_hold,Naive active: sell half then hold,at_or_after_long_term,5,1519,794.5,52.30414746543779
+test,sell_quarters_over_time,Naive active: sell quarters,over_180_days_before,0,2356,589.0,38.775510204081634
+test,sell_quarters_over_time,Naive active: sell quarters,91_to_180_days_before,1,1272,318.0,20.934825543120475
+test,sell_quarters_over_time,Naive active: sell quarters,31_to_90_days_before,2,1177,294.25,19.37129690585912
+test,sell_quarters_over_time,Naive active: sell quarters,8_to_30_days_before,3,662,165.5,10.895325872284397
+test,sell_quarters_over_time,Naive active: sell quarters,1_to_7_days_before,4,209,52.25,3.4397630019749834
+test,sell_quarters_over_time,Naive active: sell quarters,at_or_after_long_term,5,116,100.0,6.583278472679395
+test,random_policy,Random benchmark,over_180_days_before,0,1176,591.25,38.92363396971692
+test,random_policy,Random benchmark,91_to_180_days_before,1,628,320.75,21.11586570111916
+test,random_policy,Random benchmark,31_to_90_days_before,2,567,298.75,19.667544437129692
+test,random_policy,Random benchmark,8_to_30_days_before,3,328,165.75,10.911784068466096
+test,random_policy,Random benchmark,1_to_7_days_before,4,122,61.75,4.065174456879526
+test,random_policy,Random benchmark,at_or_after_long_term,5,86,80.75,5.3159973666886104
