@@ -28,6 +28,8 @@ TOP_LEVEL_PROFILE_PATH_KEYS = (
     "tax_profiles_path",
 )
 
+BRAZIL_V1_CASH_RATES = frozenset({0.07, 0.10, 0.105, 0.12, 0.1375, 0.15})
+
 
 def _resolve_path(path_value: str | Path, base_dir: Path | None) -> Path:
     path = Path(path_value)
@@ -290,3 +292,139 @@ def resolve_tax_profile_from_config(
         "or reference a profile file with tax_profile.config_path and "
         "tax_profile.profile_name."
     )
+
+
+def _scenario_mapping(parent: Mapping[str, Any], key: str, path: str) -> Mapping[str, Any]:
+    value = parent.get(key)
+    if not isinstance(value, Mapping):
+        raise ValueError(f"{path} must be a mapping.")
+    return value
+
+
+def _scenario_exact(parent: Mapping[str, Any], key: str, expected: Any, path: str) -> Any:
+    if key not in parent:
+        raise ValueError(f"{path} is required.")
+    value = parent[key]
+    if type(value) is not type(expected) or value != expected:
+        raise ValueError(f"{path} must be {expected!r}; got {value!r}.")
+    return value
+
+
+def _scenario_rate(parent: Mapping[str, Any], key: str, path: str) -> float:
+    if key not in parent:
+        raise ValueError(f"{path} is required.")
+    value = parent[key]
+    if isinstance(value, bool):
+        raise ValueError(f"{path} must be a finite numeric rate.")
+    try:
+        rate = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{path} must be a finite numeric rate.") from exc
+    if not math.isfinite(rate):
+        raise ValueError(f"{path} must be a finite numeric rate.")
+    return rate
+
+
+def _scenario_allowed_keys(parent: Mapping[str, Any], allowed: set[str], path: str) -> None:
+    unexpected = sorted(set(parent) - allowed)
+    if unexpected:
+        raise ValueError(f"{path} has unsupported field(s): {unexpected}.")
+
+
+def resolve_economic_scenario_from_config(
+    config: Mapping[str, Any],
+) -> dict[str, Any] | None:
+    """Validate and normalize an explicit economic scenario, if configured.
+
+    This resolver is independent of the legacy U.S. tax-profile loader. Later
+    phases will pass its result to training, evaluation, and the environment.
+    """
+    if "economic_scenario" not in config:
+        return None
+
+    scenario = _scenario_mapping(config, "economic_scenario", "economic_scenario")
+    _scenario_allowed_keys(
+        scenario,
+        {"name", "equity_tax", "cash_account", "terminal_horizon", "currency", "fx_conversion"},
+        "economic_scenario",
+    )
+    name = _scenario_exact(scenario, "name", "brazil_inspired_v1", "economic_scenario.name")
+
+    legacy_fields = (
+        "tax_profile", "tax_profile_name", "tax_profile_config_path",
+        "tax_profiles_path", "short_term_rate", "long_term_rate",
+    )
+    for key in legacy_fields:
+        if key in config:
+            raise ValueError(
+                f"{key} contradicts economic_scenario.name={name!r}; "
+                "remove legacy U.S. tax-profile fields from the Brazil config."
+            )
+
+    equity = _scenario_mapping(scenario, "equity_tax", "economic_scenario.equity_tax")
+    for key in ("short_term_rate", "long_term_rate"):
+        if key in equity:
+            raise ValueError(f"economic_scenario.equity_tax.{key} contradicts flat_positive_gains.")
+    _scenario_allowed_keys(equity, {"regime", "rate", "loss_credit"}, "economic_scenario.equity_tax")
+    _scenario_exact(equity, "regime", "flat_positive_gains", "economic_scenario.equity_tax.regime")
+    equity_rate = _scenario_rate(equity, "rate", "economic_scenario.equity_tax.rate")
+    if not 0.0 <= equity_rate <= 1.0 or equity_rate != 0.15:
+        raise ValueError("economic_scenario.equity_tax.rate must be 0.15 for brazil_inspired_v1 (and within [0, 1]).")
+    _scenario_exact(equity, "loss_credit", False, "economic_scenario.equity_tax.loss_credit")
+
+    cash = _scenario_mapping(scenario, "cash_account", "economic_scenario.cash_account")
+    _scenario_allowed_keys(
+        cash,
+        {"enabled", "annual_gross_rate", "compounding", "market_days_per_year", "interest_tax"},
+        "economic_scenario.cash_account",
+    )
+    _scenario_exact(cash, "enabled", True, "economic_scenario.cash_account.enabled")
+    cash_rate = _scenario_rate(cash, "annual_gross_rate", "economic_scenario.cash_account.annual_gross_rate")
+    if cash_rate not in BRAZIL_V1_CASH_RATES:
+        raise ValueError(
+            "economic_scenario.cash_account.annual_gross_rate must be one of "
+            f"{sorted(BRAZIL_V1_CASH_RATES)} for brazil_inspired_v1."
+        )
+    _scenario_exact(cash, "compounding", "effective_annual_market_252", "economic_scenario.cash_account.compounding")
+    _scenario_exact(cash, "market_days_per_year", 252, "economic_scenario.cash_account.market_days_per_year")
+    interest_tax = _scenario_mapping(cash, "interest_tax", "economic_scenario.cash_account.interest_tax")
+    _scenario_allowed_keys(interest_tax, {"regime", "tiers"}, "economic_scenario.cash_account.interest_tax")
+    _scenario_exact(interest_tax, "regime", "holding_period_tiers", "economic_scenario.cash_account.interest_tax.regime")
+    tiers = interest_tax.get("tiers")
+    if not isinstance(tiers, list) or len(tiers) != 2:
+        raise ValueError("economic_scenario.cash_account.interest_tax.tiers must contain exactly two ordered tiers.")
+    for index, (days, rate) in enumerate(((180, 0.225), (None, 0.20))):
+        path = f"economic_scenario.cash_account.interest_tax.tiers[{index}]"
+        tier = tiers[index]
+        if not isinstance(tier, Mapping):
+            raise ValueError(f"{path} must be a mapping.")
+        _scenario_allowed_keys(tier, {"max_calendar_days", "rate"}, path)
+        _scenario_exact(tier, "max_calendar_days", days, f"{path}.max_calendar_days")
+        tier_rate = _scenario_rate(tier, "rate", f"{path}.rate")
+        if tier_rate != rate:
+            raise ValueError(f"{path}.rate must be {rate!r}; got {tier_rate!r}.")
+
+    _scenario_exact(scenario, "terminal_horizon", "episode_end", "economic_scenario.terminal_horizon")
+    _scenario_exact(scenario, "currency", "USD", "economic_scenario.currency")
+    _scenario_exact(scenario, "fx_conversion", False, "economic_scenario.fx_conversion")
+
+    return {
+        "name": name,
+        "equity_tax": {"regime": "flat_positive_gains", "rate": equity_rate, "loss_credit": False},
+        "cash_account": {
+            "enabled": True,
+            "annual_gross_rate": cash_rate,
+            "compounding": "effective_annual_market_252",
+            "market_days_per_year": 252,
+            "interest_tax": {
+                "regime": "holding_period_tiers",
+                "tiers": [
+                    {"max_calendar_days": 180, "rate": 0.225},
+                    {"max_calendar_days": None, "rate": 0.20},
+                ],
+            },
+        },
+        "terminal_horizon": "episode_end",
+        "currency": "USD",
+        "fx_conversion": False,
+    }

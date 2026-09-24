@@ -18,12 +18,16 @@ Environment contract:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+
+from src.accounting.brazil_v1 import after_tax_lot_value, calculate_sale, gross_lot_value
+from src.config.tax_profiles import resolve_economic_scenario_from_config
 
 
 Observation = npt.NDArray[np.float32]
@@ -36,12 +40,27 @@ REWARD_C_LITE_VERSION = "C_lite_after_tax_value_change_minus_cooldown_penalty"
 REWARD_C_LITE_V2_VERSION = (
     "C_lite_v2_after_tax_value_change_minus_transaction_and_cooldown_penalty"
 )
+BRAZIL_BASE_REWARD_VERSION = "brazil_v1_total_after_tax_wealth_change"
+BRAZIL_C_LITE_REWARD_VERSION = (
+    "brazil_v1_total_after_tax_wealth_change_minus_cooldown_penalty"
+)
 SUPPORTED_REWARD_VERSIONS = {
     REWARD_A_VERSION,
     REWARD_C_LITE_VERSION,
     REWARD_C_LITE_V2_VERSION,
+    BRAZIL_BASE_REWARD_VERSION,
+    BRAZIL_C_LITE_REWARD_VERSION,
 }
-COOLDOWN_REWARD_VERSIONS = {REWARD_C_LITE_VERSION, REWARD_C_LITE_V2_VERSION}
+COOLDOWN_REWARD_VERSIONS = {
+    REWARD_C_LITE_VERSION, REWARD_C_LITE_V2_VERSION, BRAZIL_C_LITE_REWARD_VERSION,
+}
+
+
+@dataclass
+class _BrazilCashLot:
+    principal: float
+    deposit_date: pd.Timestamp
+    market_day_age: int = 0
 
 
 class TaxAwareEnv:
@@ -83,6 +102,7 @@ class TaxAwareEnv:
         tax_config: Mapping[str, Any] | None = None,
         reward_config: Mapping[str, Any] | None = None,
         seed: int | None = None,
+        economic_scenario: Mapping[str, Any] | None = None,
     ) -> None:
         """Initialize lightweight configuration and runtime placeholders.
 
@@ -100,6 +120,10 @@ class TaxAwareEnv:
             tax_config if tax_config is not None else self.DEFAULT_TAX_CONFIG
         )
         self.reward_config = dict(reward_config if reward_config is not None else {})
+        self.economic_scenario = resolve_economic_scenario_from_config(
+            {"economic_scenario": economic_scenario}
+        ) if economic_scenario is not None else None
+        self._brazil_mode = self.economic_scenario is not None
         self.reward_version = str(
             self.reward_config.get("version", REWARD_A_VERSION)
         )
@@ -108,15 +132,28 @@ class TaxAwareEnv:
                 f"Unsupported reward version {self.reward_version!r}. "
                 f"Supported versions: {sorted(SUPPORTED_REWARD_VERSIONS)}."
             )
+        brazil_reward = self.reward_version in {
+            BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION,
+        }
+        if brazil_reward != self._brazil_mode:
+            raise ValueError(
+                "Brazil scenario and Brazil wealth-based reward identifiers must be selected together."
+            )
         self.base_reward_version = str(
             self.reward_config.get("base_reward_version", REWARD_A_VERSION)
         )
         if self.reward_version in COOLDOWN_REWARD_VERSIONS:
-            if self.base_reward_version != REWARD_A_VERSION:
+            required_base = (
+                BRAZIL_BASE_REWARD_VERSION
+                if self._brazil_mode else REWARD_A_VERSION
+            )
+            if self.base_reward_version != required_base:
                 raise ValueError(
                     "Reward C-lite rewards require base_reward_version="
-                    f"{REWARD_A_VERSION!r}, got {self.base_reward_version!r}."
+                    f"{required_base!r}, got {self.base_reward_version!r}."
                 )
+        if self.reward_version == BRAZIL_BASE_REWARD_VERSION and self.base_reward_version != BRAZIL_BASE_REWARD_VERSION:
+            raise ValueError("Brazil base reward requires matching base_reward_version.")
 
         raw_transaction_config = self.reward_config.get("transaction_penalty", {})
         if raw_transaction_config is None:
@@ -254,6 +291,21 @@ class TaxAwareEnv:
         # update these fields because it is not a discretionary agent sale.
         self._last_sale_date: pd.Timestamp | None = None
         self._sale_count: int = 0
+
+        # Used only by the explicit Brazil path. The U.S. reset/step logic is
+        # dispatched unchanged below.
+        self._brazil_lots: list[_BrazilCashLot] = []
+        self._brazil_done = False
+        self._brazil_previous_wealth = 0.0
+        self._brazil_initial_wealth = 0.0
+        self._brazil_cash_interest_cumulative = 0.0
+        self._brazil_fixed_income_tax_cumulative = 0.0
+        self._brazil_equity_tax_cumulative = 0.0
+        self._brazil_gross_proceeds_cumulative = 0.0
+        self._brazil_cash_principal_cumulative = 0.0
+        self._brazil_mandatory_sale_count = 0
+        self._brazil_first_sale_date: pd.Timestamp | None = None
+        self._brazil_previous_observation_date: pd.Timestamp | None = None
 
     def _resolve_effective_tax_rate(
         self,
@@ -493,8 +545,12 @@ class TaxAwareEnv:
                 f"{missing_index_cols}"
             )
 
+        bookkeeping_columns = (
+            ("adj_close", "simulated_purchase_price")
+            if self._brazil_mode else self.REQUIRED_BOOKKEEPING_COLUMNS
+        )
         missing_bookkeeping_cols = [
-            col for col in self.REQUIRED_BOOKKEEPING_COLUMNS if col not in df.columns
+            col for col in bookkeeping_columns if col not in df.columns
         ]
         if missing_bookkeeping_cols:
             raise ValueError(
@@ -523,6 +579,16 @@ class TaxAwareEnv:
 
         df = df.sort_values(["episode_id", "date"], kind="stable").reset_index(drop=True)
 
+        if self._brazil_mode:
+            for column in ("adj_close", "simulated_purchase_price"):
+                df[column] = pd.to_numeric(df[column], errors="coerce")
+                if not np.isfinite(df[column].to_numpy(dtype=float)).all() or (df[column] <= 0).any():
+                    raise ValueError(f"Brazil episode column {column!r} must contain finite positive prices.")
+            if df.duplicated(["episode_id", "date"]).any():
+                raise ValueError("Brazil episode dates must be strictly increasing within each episode.")
+            if (df.groupby("episode_id")["simulated_purchase_price"].nunique() != 1).any():
+                raise ValueError("Brazil episode simulated_purchase_price must be constant within each episode.")
+
         grouped_indices = df.groupby("episode_id", sort=True).indices
         episode_index = {
             episode_id: pd.Index(row_positions)
@@ -549,6 +615,8 @@ class TaxAwareEnv:
             - initial observation vector using the frozen state column schema
             - reset info dictionary with key bookkeeping fields
         """
+        if self._brazil_mode:
+            return self._reset_brazil(episode_id)
         if not self._episode_index:
             self._load_episode_index()
 
@@ -682,6 +750,8 @@ class TaxAwareEnv:
             - done follows environment terminal conditions
             - truncated is reserved for artificial cutoffs (currently always False)
         """
+        if self._brazil_mode:
+            return self._step_brazil(action)
         if self._current_episode_df is None or self._current_episode_df.empty:
             raise RuntimeError("No active episode. Call reset() before step().")
 
@@ -956,3 +1026,260 @@ class TaxAwareEnv:
             "truncated": truncated,
         }
         return observation, reward, done, truncated, info
+
+    def _reset_brazil(self, episode_id: str | None) -> ResetResult:
+        if not self._episode_index:
+            self._load_episode_index()
+        if self._df is None:
+            raise RuntimeError("Internal dataframe is not loaded.")
+        selected_id = str(episode_id) if episode_id is not None else next(iter(self._episode_index))
+        if selected_id not in self._episode_index:
+            raise KeyError(f"episode_id '{selected_id}' not found in loaded parquet.")
+        episode = self._df.iloc[self._episode_index[selected_id]].reset_index(drop=True)
+        self._current_episode_id = selected_id
+        self._current_episode_df = episode
+        self._current_row_ptr = 0
+        self._remaining_fraction = 1.0
+        self._sold_fraction = 0.0
+        self._sale_count = 0
+        self._last_sale_date = None
+        self._brazil_first_sale_date = None
+        self._brazil_mandatory_sale_count = 0
+        self._brazil_lots = []
+        self._brazil_done = False
+        self._brazil_previous_observation_date = pd.Timestamp(episode.iloc[0]["date"])
+        self._brazil_cash_interest_cumulative = 0.0
+        self._brazil_fixed_income_tax_cumulative = 0.0
+        self._brazil_equity_tax_cumulative = 0.0
+        self._brazil_gross_proceeds_cumulative = 0.0
+        self._brazil_cash_principal_cumulative = 0.0
+
+        row = episode.iloc[0]
+        price_ratio = float(row["adj_close"] / row["simulated_purchase_price"])
+        initial_wealth = calculate_sale(1.0, price_ratio).cash_deposit
+        self._brazil_initial_wealth = initial_wealth
+        self._brazil_previous_wealth = initial_wealth
+        info: InfoDict = {
+            "episode_id": selected_id,
+            "date": row["date"],
+            "terminal_valuation_date": None,
+            "current_row_ptr": 0,
+            "scenario_name": "brazil_inspired_v1",
+            "reward_version": self.reward_version,
+            "base_reward_version": self.base_reward_version,
+            "initial_total_after_tax_wealth": initial_wealth,
+            "previous_total_after_tax_wealth": initial_wealth,
+            "total_after_tax_wealth": initial_wealth,
+            "base_reward": 0.0,
+            "reward": 0.0,
+            "shaped_reward": 0.0,
+            "cash_balance": 0.0,
+            "cash_balance_gross": 0.0,
+            "cash_principal_cumulative": 0.0,
+            "cash_interest_gross_step": 0.0,
+            "cash_interest_gross_cumulative": 0.0,
+            "fixed_income_tax_estimated_liability": 0.0,
+            "fixed_income_tax_step": 0.0,
+            "fixed_income_tax_cumulative": 0.0,
+            "gross_sale_proceeds": 0.0,
+            "gross_sale_proceeds_cumulative": 0.0,
+            "equity_tax_step": 0.0,
+            "equity_tax_cumulative": 0.0,
+            "remaining_fraction": 1.0,
+            "remaining_inventory_value": price_ratio,
+            "after_tax_liquidation_value": initial_wealth,
+            "discretionary_sale_count": 0,
+            "mandatory_sale_count": 0,
+            "first_sale_date": None,
+            "first_sale_days_from_start": None,
+            "cash_lot_count": 0,
+            "done": False,
+            "truncated": False,
+        }
+        return self._get_observation(), info
+
+    def _step_brazil(self, action: int) -> StepResult:
+        if self._current_episode_df is None or self._current_episode_df.empty:
+            raise RuntimeError("No active episode. Call reset() before step().")
+        if self._brazil_done:
+            raise RuntimeError("Brazil episode is complete. Call reset() before step().")
+        if not isinstance(action, (int, np.integer)) or isinstance(action, (bool, np.bool_)):
+            raise TypeError(f"Action must be an integer index, got {type(action).__name__}.")
+        action_idx = int(action)
+        if not 0 <= action_idx < len(self.action_fractions):
+            raise ValueError(f"Invalid action index {action_idx}.")
+
+        row_ptr = self._current_row_ptr
+        row = self._current_episode_df.iloc[row_ptr]
+        current_date = pd.Timestamp(row["date"])
+        price_ratio = float(row["adj_close"] / row["simulated_purchase_price"])
+        rate = float(self.economic_scenario["cash_account"]["annual_gross_rate"])
+        last_row_ptr = len(self._current_episode_df) - 1
+        final_row = row_ptr == last_row_ptr
+        previous_wealth = self._brazil_previous_wealth
+        if self._brazil_previous_observation_date is not None and current_date < self._brazil_previous_observation_date:
+            raise RuntimeError("Brazil observations must advance chronologically.")
+
+        interest_step = 0.0
+        if row_ptr > 0:
+            for lot in self._brazil_lots:
+                before = gross_lot_value(lot.principal, rate, lot.market_day_age)
+                lot.market_day_age += 1
+                after = gross_lot_value(lot.principal, rate, lot.market_day_age)
+                interest_step += after - before
+        requested_fraction = float(self.action_fractions[action_idx])
+        executed_fraction = float(np.clip(
+            min(requested_fraction, self._remaining_fraction), 0.0, self._remaining_fraction
+        ))
+        discretionary = calculate_sale(executed_fraction, price_ratio)
+        if executed_fraction > 0.0:
+            self._brazil_lots.append(_BrazilCashLot(discretionary.cash_deposit, current_date))
+            self._brazil_cash_principal_cumulative += discretionary.cash_deposit
+        self._remaining_fraction = float(max(0.0, self._remaining_fraction - executed_fraction))
+        if np.isclose(self._remaining_fraction, 0.0, atol=1e-12):
+            self._remaining_fraction = 0.0
+        self._sold_fraction = 1.0 - self._remaining_fraction
+
+        last_sale_date_before_step = self._last_sale_date
+        cooldown_penalty, cooldown_applied, days_since_last_sale, previous_sale_exists = (
+            self._compute_cooldown_penalty(
+                executable_fraction=executed_fraction,
+                current_sale_date=current_date if executed_fraction > 0.0 else None,
+            )
+        )
+        if executed_fraction > 0.0:
+            if self._sale_count == 0:
+                self._brazil_first_sale_date = current_date
+            self._sale_count += 1
+            self._last_sale_date = current_date
+
+        early_full_sale = self._remaining_fraction == 0.0 and not final_row
+        done = final_row or early_full_sale
+        terminal_valuation_date = (
+            pd.Timestamp(self._current_episode_df.iloc[last_row_ptr]["date"]) if done else None
+        )
+        if early_full_sale:
+            # Settle at the fixed horizon without exposing later rows to the policy.
+            remaining_intervals = last_row_ptr - row_ptr
+            for lot in self._brazil_lots:
+                before = gross_lot_value(lot.principal, rate, lot.market_day_age)
+                lot.market_day_age += remaining_intervals
+                after = gross_lot_value(lot.principal, rate, lot.market_day_age)
+                interest_step += after - before
+        self._brazil_cash_interest_cumulative += interest_step
+
+        gross_cash = 0.0
+        after_tax_cash = 0.0
+        estimated_interest_tax = 0.0
+        valuation_date = terminal_valuation_date if done else current_date
+        for lot in self._brazil_lots:
+            days_held = int((valuation_date - lot.deposit_date).days)
+            value = after_tax_lot_value(lot.principal, rate, lot.market_day_age, days_held)
+            gross_cash += value.gross_value
+            after_tax_cash += value.after_tax_value
+            estimated_interest_tax += value.interest_tax
+
+        remaining_fraction_before_terminal = self._remaining_fraction
+        inventory_gross_before_terminal = remaining_fraction_before_terminal * price_ratio
+        inventory_net_before_terminal = calculate_sale(
+            remaining_fraction_before_terminal, price_ratio
+        ).cash_deposit
+        mandatory = calculate_sale(0.0, price_ratio)
+        fixed_income_tax_step = 0.0
+        if done:
+            fixed_income_tax_step = estimated_interest_tax
+            self._brazil_fixed_income_tax_cumulative += fixed_income_tax_step
+            if final_row:
+                mandatory = calculate_sale(remaining_fraction_before_terminal, price_ratio)
+                if remaining_fraction_before_terminal > 0.0:
+                    self._brazil_mandatory_sale_count += 1
+                after_tax_cash += mandatory.cash_deposit
+                gross_cash += mandatory.cash_deposit
+            self._brazil_lots.clear()
+            self._remaining_fraction = 0.0
+            self._sold_fraction = 1.0
+            inventory_gross = 0.0
+            inventory_net = 0.0
+            estimated_interest_tax = 0.0
+        else:
+            inventory_gross = inventory_gross_before_terminal
+            inventory_net = inventory_net_before_terminal
+
+        gross_proceeds_step = discretionary.gross_proceeds + mandatory.gross_proceeds
+        equity_tax_step = discretionary.equity_tax + mandatory.equity_tax
+        self._brazil_gross_proceeds_cumulative += gross_proceeds_step
+        self._brazil_equity_tax_cumulative += equity_tax_step
+        wealth = after_tax_cash + inventory_net
+        base_reward = wealth - previous_wealth
+        reward = base_reward - cooldown_penalty if self.reward_version == BRAZIL_C_LITE_REWARD_VERSION else base_reward
+        self._brazil_previous_wealth = wealth
+        self._brazil_previous_observation_date = current_date
+
+        first_sale_days = (
+            int((self._brazil_first_sale_date - pd.Timestamp(self._current_episode_df.iloc[0]["date"])).days)
+            if self._brazil_first_sale_date is not None else None
+        )
+        info: InfoDict = {
+            "episode_id": self._current_episode_id,
+            "date": current_date,
+            "terminal_valuation_date": terminal_valuation_date,
+            "current_row_ptr": row_ptr,
+            "scenario_name": "brazil_inspired_v1",
+            "reward_version": self.reward_version,
+            "base_reward_version": self.base_reward_version,
+            "action": action_idx,
+            "action_fraction_requested": requested_fraction,
+            "action_fraction_executed": executed_fraction,
+            "discretionary_sale_fraction_executed": executed_fraction,
+            "mandatory_sale_fraction_executed": remaining_fraction_before_terminal if final_row else 0.0,
+            "sold_fraction": self._sold_fraction,
+            "remaining_fraction": self._remaining_fraction,
+            "remaining_fraction_before_terminal": remaining_fraction_before_terminal if done else None,
+            "discretionary_sale_count": self._sale_count,
+            "mandatory_sale_count": self._brazil_mandatory_sale_count,
+            "sale_count": self._sale_count,
+            "first_sale_date": self._brazil_first_sale_date,
+            "first_sale_days_from_start": first_sale_days,
+            "last_sale_date_before_step": last_sale_date_before_step,
+            "last_sale_date_after_step": self._last_sale_date,
+            "days_since_last_sale": days_since_last_sale,
+            "previous_sale_exists": previous_sale_exists,
+            "cooldown_penalty": cooldown_penalty,
+            "cooldown_penalty_applied": cooldown_applied,
+            "initial_total_after_tax_wealth": self._brazil_initial_wealth,
+            "previous_total_after_tax_wealth": previous_wealth,
+            "total_after_tax_wealth": wealth,
+            "base_reward": base_reward,
+            "shaped_reward": reward,
+            "reward": reward,
+            "cash_balance": after_tax_cash,
+            "cash_balance_gross": gross_cash,
+            "cash_principal_cumulative": self._brazil_cash_principal_cumulative,
+            "cash_interest_gross_step": interest_step,
+            "cash_interest_gross_cumulative": self._brazil_cash_interest_cumulative,
+            "fixed_income_tax_estimated_liability": estimated_interest_tax,
+            "fixed_income_tax_step": fixed_income_tax_step,
+            "fixed_income_tax_cumulative": self._brazil_fixed_income_tax_cumulative,
+            "cash_lot_count": len(self._brazil_lots),
+            "gross_sale_proceeds": gross_proceeds_step,
+            "gross_sale_proceeds_cumulative": self._brazil_gross_proceeds_cumulative,
+            "discretionary_gross_sale_proceeds": discretionary.gross_proceeds,
+            "mandatory_gross_sale_proceeds": mandatory.gross_proceeds,
+            "equity_tax_step": equity_tax_step,
+            "equity_tax_cumulative": self._brazil_equity_tax_cumulative,
+            "discretionary_equity_tax": discretionary.equity_tax,
+            "mandatory_equity_tax": mandatory.equity_tax,
+            "discretionary_cash_deposit": discretionary.cash_deposit,
+            "mandatory_after_tax_proceeds": mandatory.cash_deposit,
+            "remaining_inventory_value": inventory_gross,
+            "after_tax_liquidation_value": inventory_net,
+            "remaining_inventory_value_before_terminal": inventory_gross_before_terminal if done else None,
+            "after_tax_liquidation_value_before_terminal": inventory_net_before_terminal if done else None,
+            "is_automatic_terminal_liquidation": bool(final_row and remaining_fraction_before_terminal > 0.0),
+            "done": done,
+            "truncated": False,
+        }
+        self._brazil_done = done
+        if not done:
+            self._current_row_ptr += 1
+        return self._get_observation(), reward, done, False, info
