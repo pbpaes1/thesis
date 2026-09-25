@@ -34,8 +34,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.tax_profiles import resolve_tax_profile_from_config  # noqa: E402
+from src.config.tax_profiles import (  # noqa: E402
+    resolve_economic_scenario_from_config, resolve_tax_profile_from_config,
+)
 from src.environment.tax_aware_env import (  # noqa: E402
+    BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION,
     REWARD_A_VERSION,
     REWARD_C_LITE_VERSION,
     REWARD_C_LITE_V2_VERSION,
@@ -267,12 +270,19 @@ def _validate_reward_config(config: dict) -> None:
         REWARD_A_VERSION,
         REWARD_C_LITE_VERSION,
         REWARD_C_LITE_V2_VERSION,
+        BRAZIL_BASE_REWARD_VERSION,
+        BRAZIL_C_LITE_REWARD_VERSION,
     }
     if reward_version not in supported_reward_versions:
         raise ValueError(
             f"Unsupported reward.version={reward_version!r}; expected "
             f"one of {sorted(supported_reward_versions)}."
         )
+    scenario = resolve_economic_scenario_from_config(config)
+    if scenario and reward_version not in {BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION}:
+        raise ValueError("Brazil scenario requires Brazil reward identifiers.")
+    if not scenario and reward_version in {BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION}:
+        raise ValueError("Brazil reward identifiers require economic_scenario.")
     if not bool(_require(config, "reward.use_environment_reward")):
         raise ValueError("Baseline evaluation requires use_environment_reward=true.")
 
@@ -342,7 +352,8 @@ def _validate_reward_config(config: dict) -> None:
                 "Reward C-lite v2 must not penalize automatic terminal liquidation."
             )
 
-    resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
+    if not scenario:
+        resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
 
 
 def load_yaml(path: Path) -> dict:
@@ -389,7 +400,8 @@ def make_env(config: dict) -> TaxAwareEnv:
     schema_path = resolve_project_path(_require(env_config, "state_schema_path"))
     state_columns = load_state_columns(schema_path)
     action_fractions = _require(config, "action_space.action_fractions")
-    tax_config = resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
+    scenario = resolve_economic_scenario_from_config(config)
+    tax_config = None if scenario else resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
     seed = int(_require(config, "training.seed"))
 
     return TaxAwareEnv(
@@ -397,6 +409,7 @@ def make_env(config: dict) -> TaxAwareEnv:
         state_columns=state_columns,
         action_fractions=action_fractions,
         tax_config=tax_config,
+        economic_scenario=scenario,
         reward_config=config.get("reward"),
         seed=seed,
     )
@@ -644,6 +657,13 @@ def load_trained_q_network(
         "Saved num_actions="
         f"{checkpoint['num_actions']}; current num_actions={num_actions}."
     )
+    scenario = resolve_economic_scenario_from_config(config)
+    if scenario:
+        if checkpoint.get("economic_scenario") != scenario:
+            raise ValueError("Checkpoint Brazil economic scenario differs from evaluation config.")
+        q_net.load_state_dict(checkpoint["model_state_dict"])
+        q_net.eval()
+        return q_net
     current_tax_profile = resolve_tax_profile_from_config(
         config,
         base_dir=PROJECT_ROOT,
@@ -1622,7 +1642,101 @@ def parse_args() -> argparse.Namespace:
             f"{_relative_project_path(CONFIG_PATH)}."
         ),
     )
+    parser.add_argument("--max-validation-episodes", type=int, default=20)
+    parser.add_argument("--output-dir", type=Path, default=None)
     return parser.parse_args()
+
+
+def evaluate_brazil_validation(
+    config: dict,
+    *,
+    max_episodes: int = 20,
+    output_dir: Path | None = None,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Phase 5 benchmark path; deliberately has no test-split argument."""
+    if resolve_economic_scenario_from_config(config) is None:
+        raise ValueError("Brazil validation benchmark requires economic_scenario.")
+    if max_episodes <= 0:
+        raise ValueError("max_episodes must be positive.")
+    _validate_reward_config(config)
+    env = make_env(config)
+    splits = load_episode_splits(resolve_project_path(_require(config, "splits.source_csv")))
+    validation_ids = splits["validation"][:max_episodes]
+    output = output_dir or resolve_project_path(_require(config, "logging.output_dir")) / "phase5_validation_baselines"
+    model_path = resolve_project_path(_require(config, "logging.output_dir")) / "best_validation_model.pt"
+    device = _resolve_device(str(_require(config, "training.device")))
+    q_net = load_trained_q_network(config, model_path, len(env.state_columns), len(env.action_fractions), device)
+    margins = _require(config, "evaluation.fixed_decision_margins")
+    if margins != {"first_sale": 0.07, "subsequent_sale": 0.02}:
+        raise ValueError("Brazil validation requires fixed 0.070/0.020 margins.")
+    rng = np.random.default_rng(int(_require(config, "training.seed")))
+    episode_rows: list[dict] = []
+    step_rows: list[dict] = []
+    policies = ("trained_dqn_fixed_margin", "hold_to_terminal", "sell_immediately",
+                "sell_half_then_hold", "sell_quarters_over_time")
+    for policy in policies:
+        for episode_id in validation_ids:
+            obs, reset_info = env.reset(episode_id)
+            initial = float(reset_info["total_after_tax_wealth"])
+            base_sum = penalty_sum = 0.0
+            steps = 0
+            while True:
+                if policy == "trained_dqn_fixed_margin":
+                    action_idx = select_dqn_thresholded_greedy_action(
+                        q_net, obs, len(env.action_fractions), device, env,
+                        float(margins["subsequent_sale"]), float(margins["first_sale"]),
+                    )
+                else:
+                    fraction = baseline_action_fraction(policy, steps, rng, env)
+                    action_idx = action_index_for_fraction(env, fraction)
+                obs, reward, done, truncated, info = env.step(action_idx)
+                if truncated or obs.shape != (36,) or not np.isfinite(obs).all() or not np.isfinite(reward):
+                    raise AssertionError("Brazil validation produced invalid observation or reward.")
+                base_sum += float(info["base_reward"])
+                penalty_sum += float(info["cooldown_penalty"])
+                step_rows.append({
+                    "split": "validation", "policy_name": policy, "episode_id": episode_id,
+                    "step": steps, "date": info["date"],
+                    "terminal_valuation_date": info["terminal_valuation_date"],
+                    "action_fraction_executed": info["action_fraction_executed"],
+                    "reward": reward, "base_reward": info["base_reward"],
+                    "cooldown_penalty": info["cooldown_penalty"],
+                    "total_after_tax_wealth": info["total_after_tax_wealth"],
+                    "gross_sale_proceeds": info["gross_sale_proceeds"],
+                    "equity_tax_step": info["equity_tax_step"],
+                    "cash_principal_cumulative": info["cash_principal_cumulative"],
+                    "cash_interest_gross_cumulative": info["cash_interest_gross_cumulative"],
+                    "fixed_income_tax_step": info["fixed_income_tax_step"],
+                    "fixed_income_tax_cumulative": info["fixed_income_tax_cumulative"],
+                    "remaining_fraction": info["remaining_fraction"], "done": done,
+                })
+                steps += 1
+                if done:
+                    final = float(info["total_after_tax_wealth"])
+                    if not math.isclose(base_sum, final - initial, rel_tol=1e-8, abs_tol=1e-8):
+                        raise AssertionError("Brazil validation base rewards do not telescope.")
+                    episode_rows.append({
+                        "split": "validation", "policy_name": policy, "episode_id": episode_id,
+                        "steps": steps, "initial_total_after_tax_wealth": initial,
+                        "final_total_after_tax_wealth": final, "base_reward_sum": base_sum,
+                        "cooldown_penalty_sum": penalty_sum,
+                        "shaped_reward_sum": base_sum - penalty_sum,
+                        "terminal_valuation_date": info["terminal_valuation_date"],
+                        "discretionary_sale_count": info["discretionary_sale_count"],
+                        "mandatory_sale_count": info["mandatory_sale_count"],
+                        "gross_sale_proceeds_cumulative": info["gross_sale_proceeds_cumulative"],
+                        "equity_tax_cumulative": info["equity_tax_cumulative"],
+                        "cash_principal_cumulative": info["cash_principal_cumulative"],
+                        "cash_interest_gross_cumulative": info["cash_interest_gross_cumulative"],
+                        "fixed_income_tax_cumulative": info["fixed_income_tax_cumulative"],
+                    })
+                    break
+    episodes = pd.DataFrame(episode_rows)
+    steps_frame = pd.DataFrame(step_rows)
+    output.mkdir(parents=True, exist_ok=True)
+    episodes.to_csv(output / "validation_episode_metrics.csv", index=False)
+    steps_frame.to_csv(output / "validation_step_rollouts.csv", index=False)
+    return episodes, steps_frame
 
 
 def main() -> None:
@@ -1631,6 +1745,11 @@ def main() -> None:
     args = parse_args()
     config_path = resolve_project_path(args.config)
     config = load_yaml(config_path)
+    if resolve_economic_scenario_from_config(config):
+        evaluate_brazil_validation(config, max_episodes=args.max_validation_episodes,
+                                   output_dir=resolve_project_path(args.output_dir) if args.output_dir else None)
+        print("BRAZIL VALIDATION BENCHMARK COMPLETE")
+        return
     _validate_reward_config(config)
     policy_names = resolve_evaluation_policy_names(config)
     expected_reward_version = str(_require(config, "reward.expected_info_reward_version"))

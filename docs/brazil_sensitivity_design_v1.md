@@ -93,6 +93,13 @@ subtracted after the base reward. Thus its undiscounted shaped return equals
 the final-minus-initial wealth change less cumulative cooldown penalties;
 the penalties do not change economic wealth. Select checkpoints by validation
 mean final total after-tax wealth, never shaped cumulative reward.
+This retains the U.S. C-lite v5 behavioral cooldown penalty and its
+validation-based checkpoint-selection approach, while changing the validation
+metric from U.S. after-tax PnL to Brazil final after-tax account wealth. Brazil
+uses `gamma = 1.0`; the U.S. C-lite v5 run used `0.99`. The undiscounted Brazil
+return aligns action rollouts of different lengths with wealth at their common
+original terminal valuation date. This is a documented training difference
+between the sensitivity and the historical control.
 
 ## Event timeline and terminal horizon
 

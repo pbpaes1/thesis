@@ -1,0 +1,42 @@
+{
+  "rate_suffix": "1000",
+  "captured_utc": "2026-09-24T22:34:36.127451+00:00",
+  "repository_commit": "568e0eaf650eccdde4090d957853d59a7a7df6a4",
+  "working_tree_status": "M configs/brazil_sensitivity_rate_0700_v1.yaml\n M configs/brazil_sensitivity_rate_1000_v1.yaml\n M configs/brazil_sensitivity_rate_1050_v1.yaml\n M configs/brazil_sensitivity_rate_1200_v1.yaml\n M configs/brazil_sensitivity_rate_1375_v1.yaml\n M configs/brazil_sensitivity_rate_1500_v1.yaml\n M docs/brazil_sensitivity_design_v1.md\n M scripts/evaluate_reward_a_baselines.py\n M scripts/train_dqn_reward_a_full.py\n?? dqn_tax_timing.svg\n?? runs/brazil_phase5_smoke/\n?? runs/brazil_sensitivity_rate_0700_v1/\n?? runs/brazil_sensitivity_rate_1000_v1/\n?? scripts/freeze_brazil_phase6.py\n?? scripts/generate_tax_timing_chart.py\n?? scripts/run_brazil_phase5_smoke.py\n?? tests/test_brazil_phase5_integration.py",
+  "tracked_diff_sha256": "c9b51afe6f1feeedcb255cb83725f75630163771d6d033452364d32cfb7509d3",
+  "source_config_sha256": "f3a681dcd59e0f7d00b7818b2c2c1950bdbabe39ac229380d519809eff092d12",
+  "trainer_sha256": "d9ab86cab6929e7c17b4bcd93cecc3b54b2626f4f635f97c474e0ccbedd3094f",
+  "environment_sha256": "2c12e02d3553871a4e395c505c820feb32e2319d47fb58be275ce4c645d592f5",
+  "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+  "v2_state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+  "ordered_split_id_sha256": {
+    "train": "e83c5717229acfa8c901fd22c7a192ef783ff4a8cc926396bedde7b49e5df7d4",
+    "validation": "af345e418b3668dde467c6f4287ceb940ae65fdcc8cc03cce61ee73d18120c6c",
+    "test": "273d2547e2cba607dbbb87a2f5125a304516caf70fd7269859968b30c2b6f98c"
+  },
+  "completed_utc": "2026-09-24T23:02:30.547583+00:00",
+  "wall_seconds": 1666.789929,
+  "storage_bytes": 257287047,
+  "effective_config_path": "runs/brazil_sensitivity_rate_1000_v1/config_used.yaml",
+  "effective_config_sha256": "9a37181b0d2c8d6d3305b861c6cea5fcfe7e544f56a1dd77e73494858696276a",
+  "seed": 42,
+  "gamma": 1.0,
+  "fixed_decision_margins": {
+    "first_sale": 0.07,
+    "subsequent_sale": 0.02
+  },
+  "train_episode_count": 7083,
+  "validation_episode_count": 1517,
+  "validation_episodes_per_checkpoint": 500,
+  "training_passes": 21249,
+  "validation_checkpoints": 43,
+  "training_steps": 177607,
+  "optimization_steps": 177544,
+  "selected_checkpoint": "runs/brazil_sensitivity_rate_1000_v1/best_validation_model.pt",
+  "selected_checkpoint_sha256": "5646540293c25cb5da4a1855d29a4da669049c1cbceac1a11be05e9f2451ff9a",
+  "selection_metric": "mean_final_total_after_tax_wealth",
+  "selected_validation_score": 1.6117054657740355,
+  "selected_global_train_episode_idx": 10500,
+  "finite_training_checks": "passed",
+  "test_outcomes_opened": false
+}

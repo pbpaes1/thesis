@@ -1,0 +1,9 @@
+DQN Best Validation Model Summary
+best_model_metric: mean_final_total_after_tax_wealth
+best_model_mode: max
+best_metric_value: 1.618704807195922
+best_epoch_idx: 1
+best_epoch_number: 2
+best_global_train_episode_idx: 10500
+best_global_step: 53255
+model_path: runs/brazil_sensitivity_rate_1375_v1/best_validation_model.pt

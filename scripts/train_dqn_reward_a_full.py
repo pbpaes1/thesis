@@ -43,8 +43,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.config.tax_profiles import resolve_tax_profile_from_config  # noqa: E402
+from src.config.tax_profiles import (  # noqa: E402
+    resolve_economic_scenario_from_config, resolve_tax_profile_from_config,
+)
 from src.environment.tax_aware_env import (  # noqa: E402
+    BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION,
     REWARD_A_VERSION,
     REWARD_C_LITE_VERSION,
     REWARD_C_LITE_V2_VERSION,
@@ -181,6 +184,25 @@ VALIDATION_ROLLOUT_COLUMNS = [
     "done",
 ]
 
+BRAZIL_ROLLOUT_FIELDS = [
+    "terminal_valuation_date", "base_reward", "total_after_tax_wealth",
+    "previous_total_after_tax_wealth", "cash_balance", "cash_balance_gross",
+    "cash_principal_cumulative", "cash_interest_gross_step",
+    "cash_interest_gross_cumulative", "fixed_income_tax_estimated_liability",
+    "fixed_income_tax_step", "fixed_income_tax_cumulative",
+    "gross_sale_proceeds", "gross_sale_proceeds_cumulative",
+    "discretionary_gross_sale_proceeds", "mandatory_gross_sale_proceeds",
+    "equity_tax_step", "equity_tax_cumulative", "discretionary_equity_tax",
+    "mandatory_equity_tax", "remaining_inventory_value",
+    "after_tax_liquidation_value", "discretionary_sale_count", "mandatory_sale_count",
+]
+def _brazil_info(info: dict) -> dict:
+    return {field: info.get(field) for field in BRAZIL_ROLLOUT_FIELDS}
+
+
+def _scenario(config: dict) -> dict | None:
+    return resolve_economic_scenario_from_config(config)
+
 
 def _require(config: dict, path: str) -> Any:
     current: Any = config
@@ -265,7 +287,8 @@ def make_env(config: dict) -> TaxAwareEnv:
     schema_path = _project_path(_require(env_config, "state_schema_path"))
     state_columns = load_state_columns(schema_path)
     action_fractions = _require(config, "action_space.action_fractions")
-    tax_config = resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
+    scenario = _scenario(config)
+    tax_config = None if scenario else resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
     seed = int(_require(config, "training.seed"))
 
     return TaxAwareEnv(
@@ -273,6 +296,7 @@ def make_env(config: dict) -> TaxAwareEnv:
         state_columns=state_columns,
         action_fractions=action_fractions,
         tax_config=tax_config,
+        economic_scenario=scenario,
         reward_config=config.get("reward"),
         seed=seed,
     )
@@ -302,6 +326,16 @@ def assert_reward_info(
         f"expected {expected_reward_version!r}."
     )
     assert approx_equal(reward, info["reward"]), "reward != info['reward']"
+    if expected_reward_version in {BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION}:
+        base = float(info["base_reward"])
+        wealth = float(info["total_after_tax_wealth"])
+        previous = float(info["previous_total_after_tax_wealth"])
+        penalty = float(info.get("cooldown_penalty", 0.0))
+        assert approx_equal(base, wealth - previous), "Brazil wealth reward identity failed."
+        expected = base - penalty if expected_reward_version == BRAZIL_C_LITE_REWARD_VERSION else base
+        assert approx_equal(reward, expected), "Brazil shaped reward identity failed."
+        assert np.isfinite([base, wealth, previous, penalty]).all()
+        return
     reward_A = float(info["reward_A"])
     transaction_penalty = float(info.get("transaction_penalty", 0.0) or 0.0)
     cooldown_penalty = float(info.get("cooldown_penalty", 0.0) or 0.0)
@@ -440,11 +474,23 @@ def build_episode_splits(env: TaxAwareEnv, config: dict) -> dict[str, list[str]]
     if len(combined) != len(set(combined)):
         raise AssertionError("An episode appears in more than one split.")
 
-    return {
+    splits = {
         "train": train_ids,
         "validation": validation_ids,
         "test": test_ids,
     }
+    if _scenario(config):
+        saved_path = _project_path(_require(config, "splits.source_csv"))
+        saved = pd.read_csv(saved_path, dtype=str)
+        if list(saved.columns)[:2] != ["episode_id", "split"] or saved["episode_id"].duplicated().any():
+            raise ValueError("Brazil split CSV has invalid columns or duplicate episode IDs.")
+        for split_name, expected_ids in splits.items():
+            actual_ids = saved.loc[saved["split"] == split_name, "episode_id"].tolist()
+            if actual_ids != expected_ids:
+                raise ValueError(f"Brazil {split_name} split differs from saved C-lite v5 ordering or membership.")
+        if len(saved) != n_total:
+            raise ValueError("Brazil saved split coverage differs from the scenario universe.")
+    return splits
 
 
 class QNetwork(nn.Module):
@@ -917,6 +963,7 @@ def run_validation_policy(
     expected_reward_version: str,
     device: torch.device,
     max_eval_episodes: int | None = None,
+    fixed_margins: tuple[float, float] | None = None,
 ) -> tuple[pd.DataFrame, dict]:
     if max_eval_episodes is not None:
         if max_eval_episodes <= 0:
@@ -962,7 +1009,11 @@ def run_validation_policy(
                         f"max_steps={max_steps}."
                     )
 
-                action_idx = select_greedy_action(q_net, obs, num_actions, device)
+                action_idx = (
+                    select_thresholded_greedy_action(q_net, obs, num_actions, np.random.default_rng(0),
+                        device, env, fixed_margins[1], fixed_margins[0])
+                    if fixed_margins else select_greedy_action(q_net, obs, num_actions, device)
+                )
                 next_obs, reward, done, truncated, info = env.step(action_idx)
                 if truncated is not False:
                     raise AssertionError(
@@ -1043,6 +1094,7 @@ def run_validation_policy(
                             "terminal_liquidation_executed"
                         ),
                         "done": done,
+                        **_brazil_info(info),
                     }
                 )
 
@@ -1055,9 +1107,12 @@ def run_validation_policy(
                 raise RuntimeError(f"Validation episode {episode_id} had no steps.")
             episode_rewards.append(episode_total_reward)
             episode_lengths.append(step_in_episode)
-            final_values.append(float(last_info["after_tax_total_value"]))
+            final_values.append(float(last_info[
+                "total_after_tax_wealth" if fixed_margins else "after_tax_total_value"
+            ]))
             terminal_liquidation_flags.append(
-                bool(last_info.get("terminal_liquidation_executed", False))
+                bool(last_info.get("mandatory_sale_count", 0)) if fixed_margins
+                else bool(last_info.get("terminal_liquidation_executed", False))
             )
             full_liquidation_flags.append(
                 approx_equal(float(last_info.get("remaining_fraction", 0.0)), 0.0)
@@ -1078,8 +1133,13 @@ def run_validation_policy(
         "terminal_liquidation_frequency": float(np.mean(terminal_liquidation_flags)),
         "full_liquidation_frequency": float(np.mean(full_liquidation_flags)),
     }
+    if fixed_margins:
+        metrics["mean_final_total_after_tax_wealth"] = float(np.mean(final_values))
+        metrics["median_final_total_after_tax_wealth"] = float(np.median(final_values))
+        metrics.pop("mean_final_after_tax_total_value")
+        metrics.pop("median_final_after_tax_total_value")
     return (
-        pd.DataFrame(rollout_rows, columns=VALIDATION_ROLLOUT_COLUMNS),
+        pd.DataFrame(rollout_rows, columns=VALIDATION_ROLLOUT_COLUMNS + (BRAZIL_ROLLOUT_FIELDS if fixed_margins else [])),
         metrics,
     )
 
@@ -1102,16 +1162,15 @@ def _checkpoint_payload(
     best_model_metric: str | None = None,
     best_metric_value: float | None = None,
 ) -> dict:
-    resolved_tax_profile = resolve_tax_profile_from_config(
-        config,
-        base_dir=PROJECT_ROOT,
-    )
+    scenario = _scenario(config)
+    resolved_tax_profile = None if scenario else resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
     return {
         "model_state_dict": q_net.state_dict(),
         "target_model_state_dict": target_net.state_dict(),
         "optimizer_state_dict": optimizer.state_dict(),
         "config": config,
         "resolved_tax_profile": resolved_tax_profile,
+        "economic_scenario": scenario,
         "obs_dim": obs_dim,
         "num_actions": num_actions,
         "reward_version": expected_reward_version,
@@ -1155,12 +1214,27 @@ def _validate_config_for_environment_reward(config: dict) -> None:
         REWARD_A_VERSION,
         REWARD_C_LITE_VERSION,
         REWARD_C_LITE_V2_VERSION,
+        BRAZIL_BASE_REWARD_VERSION,
+        BRAZIL_C_LITE_REWARD_VERSION,
     }
     if reward_version not in supported_reward_versions:
         raise ValueError(
             f"Unsupported reward.version={reward_version!r}; expected "
             f"one of {sorted(supported_reward_versions)}."
         )
+    scenario = _scenario(config)
+    if scenario:
+        if reward_version not in {BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION}:
+            raise ValueError("Brazil scenario requires a Brazil wealth reward identifier.")
+        if float(_require(config, "training.discount_factor_gamma")) != 1.0:
+            raise ValueError("Brazil scenario requires training.discount_factor_gamma=1.0.")
+        if str(_require(config, "training.best_model_metric")) != "mean_final_total_after_tax_wealth":
+            raise ValueError("Brazil checkpoint metric must be mean_final_total_after_tax_wealth.")
+        margins = _require(config, "evaluation.fixed_decision_margins")
+        if margins != {"first_sale": 0.07, "subsequent_sale": 0.02}:
+            raise ValueError("Brazil fixed decision margins must be 0.070/0.020.")
+    elif reward_version in {BRAZIL_BASE_REWARD_VERSION, BRAZIL_C_LITE_REWARD_VERSION}:
+        raise ValueError("Brazil reward identifier requires economic_scenario.")
     if not bool(_require(config, "reward.use_environment_reward")):
         raise ValueError("Full training requires use_environment_reward=true.")
     excluded_flags = [
@@ -1440,10 +1514,8 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
     checkpoint_dir = output_dir / "checkpoints"
     output_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
-    resolved_tax_profile = resolve_tax_profile_from_config(
-        config,
-        base_dir=PROJECT_ROOT,
-    )
+    scenario = _scenario(config)
+    resolved_tax_profile = None if scenario else resolve_tax_profile_from_config(config, base_dir=PROJECT_ROOT)
     configured_action_fractions = _require(config, "action_space.action_fractions")
     exploration_action_probabilities = load_exploration_action_probabilities(
         config=config,
@@ -1542,6 +1614,15 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
     eval_metric_rows: list[dict[str, Any]] = []
     train_rollout_rows: list[dict[str, Any]] = []
     validation_rollout_frames: list[pd.DataFrame] = []
+    train_rollouts_path = output_dir / "train_episode_rollouts.csv"
+    validation_rollouts_path = output_dir / "validation_episode_rollouts.csv"
+    current_validation_rollouts_path = validation_rollouts_path
+    validation_rollout_part = 1
+    brazil_train_columns = TRAIN_ROLLOUT_COLUMNS + BRAZIL_ROLLOUT_FIELDS
+    brazil_validation_columns = VALIDATION_ROLLOUT_COLUMNS + BRAZIL_ROLLOUT_FIELDS
+    if scenario:
+        pd.DataFrame(columns=brazil_train_columns).to_csv(train_rollouts_path, index=False)
+        pd.DataFrame(columns=brazil_validation_columns).to_csv(validation_rollouts_path, index=False)
     losses: list[float] = []
     train_episode_rewards: list[float] = []
     train_episode_lengths: list[int] = []
@@ -1573,6 +1654,7 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
         epoch_number = epoch_idx + 1
         for train_episode_idx, episode_id in enumerate(train_ids, start=1):
             global_train_episode_idx += 1
+            train_episode_rows: list[dict[str, Any]] = []
             obs, _reset_info = env.reset(episode_id=episode_id)
             if obs.shape != (obs_dim,):
                 raise AssertionError(
@@ -1705,7 +1787,7 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                 ):
                     target_net.load_state_dict(q_net.state_dict())
 
-                train_rollout_rows.append(
+                (train_episode_rows if scenario else train_rollout_rows).append(
                     {
                         "split": "train",
                         "epoch_idx": epoch_idx,
@@ -1790,6 +1872,7 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                         ),
                         "done": done,
                         "loss": loss,
+                        **_brazil_info(info),
                     }
                 )
 
@@ -1799,10 +1882,14 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                 step_in_episode += 1
                 global_step += 1
 
+            if scenario:
+                pd.DataFrame(train_episode_rows, columns=brazil_train_columns).to_csv(
+                    train_rollouts_path, mode="a", header=False, index=False,
+                )
             train_episode_rewards.append(episode_total_reward)
             train_episode_lengths.append(step_in_episode)
             final_value = (
-                float(last_info["after_tax_total_value"])
+                float(last_info["total_after_tax_wealth" if scenario else "after_tax_total_value"])
                 if last_info is not None
                 else float("nan")
             )
@@ -1864,12 +1951,28 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                     expected_reward_version=expected_reward_version,
                     device=device,
                     max_eval_episodes=max_eval_episodes,
+                    fixed_margins=(0.07, 0.02) if scenario else None,
                 )
                 validation_rollouts["evaluation_episode_idx"] = (
                     global_train_episode_idx
                 )
                 validation_rollouts["global_step"] = global_step
-                validation_rollout_frames.append(validation_rollouts)
+                if scenario:
+                    # Keep each Brazil rollout CSV small on synced Windows filesystems.
+                    # Rotation changes only logging, never validation actions or metrics.
+                    if current_validation_rollouts_path.stat().st_size >= 64 * 1024 * 1024:
+                        validation_rollout_part += 1
+                        current_validation_rollouts_path = output_dir / (
+                            f"validation_episode_rollouts_part_{validation_rollout_part}.csv"
+                        )
+                        pd.DataFrame(columns=brazil_validation_columns).to_csv(
+                            current_validation_rollouts_path, index=False
+                        )
+                    validation_rollouts.to_csv(
+                        current_validation_rollouts_path, mode="a", header=False, index=False
+                    )
+                else:
+                    validation_rollout_frames.append(validation_rollouts)
                 eval_row = {
                     "evaluation_episode_idx": global_train_episode_idx,
                     "epoch_idx": epoch_idx,
@@ -1885,7 +1988,7 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
                     f"global_step={global_step} "
                     f"mean_reward={validation_metrics['mean_episode_total_reward']:.8f} "
                     "mean_final_value="
-                    f"{validation_metrics['mean_final_after_tax_total_value']:.8f} "
+                    f"{validation_metrics[best_model_metric]:.8f} "
                     "terminal_liquidation_frequency="
                     f"{validation_metrics['terminal_liquidation_frequency']:.8f}"
                 )
@@ -1975,32 +2078,27 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
     )
 
     train_metrics = pd.DataFrame(train_metric_rows, columns=TRAIN_METRIC_COLUMNS)
-    eval_metrics = pd.DataFrame(eval_metric_rows, columns=EVAL_METRIC_COLUMNS)
-    train_episode_rollouts = pd.DataFrame(
-        train_rollout_rows,
-        columns=TRAIN_ROLLOUT_COLUMNS,
-    )
-    if validation_rollout_frames:
-        validation_episode_rollouts = pd.concat(
-            validation_rollout_frames,
-            ignore_index=True,
-        )[VALIDATION_ROLLOUT_COLUMNS]
-    else:
-        validation_episode_rollouts = pd.DataFrame(
-            columns=VALIDATION_ROLLOUT_COLUMNS
+    brazil_eval_columns = [column for column in EVAL_METRIC_COLUMNS if column not in {
+        "mean_final_after_tax_total_value", "median_final_after_tax_total_value"
+    }] + ["mean_final_total_after_tax_wealth", "median_final_total_after_tax_wealth"]
+    eval_metrics = pd.DataFrame(eval_metric_rows, columns=brazil_eval_columns if scenario else EVAL_METRIC_COLUMNS)
+    if not scenario:
+        train_episode_rollouts = pd.DataFrame(train_rollout_rows, columns=TRAIN_ROLLOUT_COLUMNS)
+        validation_episode_rollouts = (
+            pd.concat(validation_rollout_frames, ignore_index=True)[VALIDATION_ROLLOUT_COLUMNS]
+            if validation_rollout_frames else pd.DataFrame(columns=VALIDATION_ROLLOUT_COLUMNS)
         )
 
     train_metrics_path = output_dir / "train_metrics.csv"
     eval_metrics_path = output_dir / "eval_metrics.csv"
-    train_rollouts_path = output_dir / "train_episode_rollouts.csv"
-    validation_rollouts_path = output_dir / "validation_episode_rollouts.csv"
     final_model_path = output_dir / "final_model.pt"
     summary_path = output_dir / "training_summary.txt"
 
     train_metrics.to_csv(train_metrics_path, index=False)
     eval_metrics.to_csv(eval_metrics_path, index=False)
-    train_episode_rollouts.to_csv(train_rollouts_path, index=False)
-    validation_episode_rollouts.to_csv(validation_rollouts_path, index=False)
+    if not scenario:
+        train_episode_rollouts.to_csv(train_rollouts_path, index=False)
+        validation_episode_rollouts.to_csv(validation_rollouts_path, index=False)
 
     final_payload = _checkpoint_payload(
         q_net,
@@ -2038,8 +2136,9 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
         "cooldown_penalty_enabled": cooldown_penalty_enabled,
         "lambda_cooldown": lambda_cooldown,
         "cooldown_days": cooldown_days,
-        "tax_profile_name": resolved_tax_profile["profile_name"],
+        "tax_profile_name": resolved_tax_profile["profile_name"] if resolved_tax_profile else None,
         "resolved_tax_profile": resolved_tax_profile,
+        "economic_scenario": scenario,
         "num_total_episodes": n_total,
         "num_train_episodes": len(train_ids),
         "num_validation_episodes": len(validation_ids),
@@ -2078,6 +2177,9 @@ def train_full(config: dict, config_path: Path = CONFIG_PATH) -> dict:
         ),
         "final_validation_mean_final_after_tax_total_value": final_validation.get(
             "mean_final_after_tax_total_value"
+        ),
+        "final_validation_mean_final_total_after_tax_wealth": final_validation.get(
+            "mean_final_total_after_tax_wealth"
         ),
         "final_validation_terminal_liquidation_frequency": final_validation.get(
             "terminal_liquidation_frequency"

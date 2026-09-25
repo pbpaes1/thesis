@@ -1,0 +1,17 @@
+{
+  "rate_suffix": "1375",
+  "captured_utc": "2026-09-25T00:37:06.930093+00:00",
+  "repository_commit": "568e0eaf650eccdde4090d957853d59a7a7df6a4",
+  "working_tree_status": "M configs/brazil_sensitivity_rate_0700_v1.yaml\n M configs/brazil_sensitivity_rate_1000_v1.yaml\n M configs/brazil_sensitivity_rate_1050_v1.yaml\n M configs/brazil_sensitivity_rate_1200_v1.yaml\n M configs/brazil_sensitivity_rate_1375_v1.yaml\n M configs/brazil_sensitivity_rate_1500_v1.yaml\n M docs/brazil_sensitivity_design_v1.md\n M scripts/evaluate_reward_a_baselines.py\n M scripts/train_dqn_reward_a_full.py\n?? dqn_tax_timing.svg\n?? runs/brazil_phase5_smoke/\n?? runs/brazil_phase6_failed_1200_first_attempt/\n?? runs/brazil_sensitivity_rate_0700_v1/\n?? runs/brazil_sensitivity_rate_1000_v1/\n?? runs/brazil_sensitivity_rate_1050_v1/\n?? runs/brazil_sensitivity_rate_1200_v1/\n?? runs/brazil_sensitivity_rate_1375_v1/\n?? scripts/freeze_brazil_phase6.py\n?? scripts/generate_tax_timing_chart.py\n?? scripts/run_brazil_phase5_smoke.py\n?? tests/test_brazil_phase5_integration.py",
+  "tracked_diff_sha256": "4e850e809934b4e22797d249ca249201c4e9fd00b7115b8e26a051a65c036b71",
+  "source_config_sha256": "a81e8a5411a901eb4ed3c181e833ef426bca8d1e4ee27295e627f1f6a5d0fee2",
+  "trainer_sha256": "54642d212cbb506d24299d17a7a20a9c2e95b3d739115c7feca631d57afef791",
+  "environment_sha256": "2c12e02d3553871a4e395c505c820feb32e2319d47fb58be275ce4c645d592f5",
+  "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+  "v2_state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+  "ordered_split_id_sha256": {
+    "train": "e83c5717229acfa8c901fd22c7a192ef783ff4a8cc926396bedde7b49e5df7d4",
+    "validation": "af345e418b3668dde467c6f4287ceb940ae65fdcc8cc03cce61ee73d18120c6c",
+    "test": "273d2547e2cba607dbbb87a2f5125a304516caf70fd7269859968b30c2b6f98c"
+  }
+}
