@@ -38,5 +38,9 @@
   "selected_validation_score": 1.6131519281468472,
   "selected_global_train_episode_idx": 18000,
   "finite_training_checks": "passed",
-  "test_outcomes_opened": false
+  "test_outcomes_opened": true,
+  "phase7_test_access_checkpoint": "runs/brazil_phase7_test_access/test_access_checkpoint.json",
+  "phase7_test_access_checkpoint_sha256": "de4efb15f48b99594f58a6dbc2591bbce0e514d731c3937d4e4c20ea1f48f002",
+  "phase7_evaluation_manifest": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/evaluation_manifest.json",
+  "phase7_evaluation_manifest_sha256": "0d6421aff89d16f89a8d27fb7d4bebea4f28c0ab01eeabac97b3c47a14b150bf"
 }

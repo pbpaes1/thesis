@@ -42,5 +42,9 @@
     "runs/brazil_sensitivity_rate_1500_v1/validation_episode_rollouts_part_2.csv"
   ],
   "finite_training_checks": "passed",
-  "test_outcomes_opened": false
+  "test_outcomes_opened": true,
+  "phase7_test_access_checkpoint": "runs/brazil_phase7_test_access/test_access_checkpoint.json",
+  "phase7_test_access_checkpoint_sha256": "de4efb15f48b99594f58a6dbc2591bbce0e514d731c3937d4e4c20ea1f48f002",
+  "phase7_evaluation_manifest": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/evaluation_manifest.json",
+  "phase7_evaluation_manifest_sha256": "97ceefd5b5b61679f42381cbdd5784c6a1f53d9cfab2c33bf141f9c8433dfdcb"
 }

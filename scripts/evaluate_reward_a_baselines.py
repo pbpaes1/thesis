@@ -1644,6 +1644,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-validation-episodes", type=int, default=20)
     parser.add_argument("--output-dir", type=Path, default=None)
+    parser.add_argument("--brazil-locked-test", action="store_true",
+                        help="Run Phase 7 test evaluation from the saved access checkpoint.")
     return parser.parse_args()
 
 
@@ -1745,6 +1747,22 @@ def main() -> None:
     args = parse_args()
     config_path = resolve_project_path(args.config)
     config = load_yaml(config_path)
+    if args.brazil_locked_test:
+        if args.output_dir is not None or args.max_validation_episodes != 20:
+            raise ValueError("Locked test output and episode coverage cannot be overridden.")
+        from scripts.brazil_phase7_evaluate import evaluate_rate, locked_record
+        from scripts.freeze_brazil_phase7_access import id_hash
+        access, access_sha = locked_record()
+        matches = [model for model in access["models"]
+                   if resolve_project_path(model["effective_config_path"]) == config_path]
+        if len(matches) != 1:
+            raise ValueError("Locked test requires one of the six frozen effective configs.")
+        test_ids = load_episode_splits(resolve_project_path(access["saved_test_ids_path"]))["test"]
+        if len(test_ids) != 1519 or id_hash(test_ids) != access["saved_test_id_ordered_sha256"]:
+            raise AssertionError("Test ID count or ordered hash changed after access freeze.")
+        evaluate_rate(matches[0], access_sha, test_ids)
+        print("BRAZIL LOCKED TEST EVALUATION COMPLETE")
+        return
     if resolve_economic_scenario_from_config(config):
         evaluate_brazil_validation(config, max_episodes=args.max_validation_episodes,
                                    output_dir=resolve_project_path(args.output_dir) if args.output_dir else None)

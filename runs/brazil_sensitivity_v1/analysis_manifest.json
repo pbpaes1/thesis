@@ -1,0 +1,428 @@
+{
+  "phase": 8,
+  "created_utc": "2026-09-25T22:18:00.654294+00:00",
+  "builder": "scripts/build_brazil_sensitivity_phase8.py",
+  "builder_sha256": "6aa26c5c1eb96b5f7afbeb4c591b2e2df892c8c5510569be5594324a8de05ad7",
+  "source": "locked_phase7_test_outputs_only",
+  "test_access_path": "runs/brazil_phase7_test_access/test_access_checkpoint.json",
+  "test_access_sha256": "de4efb15f48b99594f58a6dbc2591bbce0e514d731c3937d4e4c20ea1f48f002",
+  "ordered_test_id_sha256": "273d2547e2cba607dbbb87a2f5125a304516caf70fd7269859968b30c2b6f98c",
+  "episodes_per_policy_rate": 1519,
+  "rates": [
+    "0700",
+    "1000",
+    "1050",
+    "1200",
+    "1375",
+    "1500"
+  ],
+  "policies": [
+    "trained_dqn_fixed_margin",
+    "hold_to_terminal",
+    "sell_immediately",
+    "sell_half_then_hold",
+    "sell_quarters_over_time",
+    "random_policy"
+  ],
+  "bootstrap": {
+    "method": "paired_episode_percentile",
+    "seed": 20260925,
+    "replicates": 4000,
+    "confidence_level": 0.95,
+    "tie_tolerance": 1e-10
+  },
+  "primary_focus_source": "https://www.bcb.gov.br/content/focus/focus/R20260911.pdf",
+  "historical_15pct_source": "https://www.bcb.gov.br/controleinflacao/comunicadoscopom/20733",
+  "source_evaluation_manifests": [
+    {
+      "rate_suffix": "0700",
+      "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/evaluation_manifest.json",
+      "sha256": "95fabcbf1b29f34c7096d5f3f21fde3bb81add0404fe781bbdd29d4bdfd92750",
+      "episode_metrics": {
+        "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/test_episode_metrics.csv",
+        "sha256": "8f7ec2cd2a4e697a396c0815cffadc47a678316cd43288d5bc3757d2bea6a053",
+        "rows": 9114
+      },
+      "step_rollouts": [
+        {
+          "policy_name": "trained_dqn_fixed_margin",
+          "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/trained_dqn_fixed_margin_step_rollouts.parquet",
+          "sha256": "ac439dcda16c2015282e8b77cb41fe87301003cb2856f7b58f7029815ba92888",
+          "rows": 21497
+        },
+        {
+          "policy_name": "hold_to_terminal",
+          "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/hold_to_terminal_step_rollouts.parquet",
+          "sha256": "84d45add3acdbae78a958d85bbcef6d7468d3934fadf188ff1208a0c54b3be8b",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_immediately",
+          "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/sell_immediately_step_rollouts.parquet",
+          "sha256": "fd488a61eb9a5dfd82bf88c50ff12da6e14de11f4f487e6049924692f634ff81",
+          "rows": 1519
+        },
+        {
+          "policy_name": "sell_half_then_hold",
+          "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/sell_half_then_hold_step_rollouts.parquet",
+          "sha256": "5eb1655e2687e92eda6538e61a263d79a057088e159c4098315a56eed7dd6548",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_quarters_over_time",
+          "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/sell_quarters_over_time_step_rollouts.parquet",
+          "sha256": "5f275ef413f90c18c6a3bb16886a665ebf90748ba2ffcdc6f601519b4afddd95",
+          "rows": 5866
+        },
+        {
+          "policy_name": "random_policy",
+          "path": "runs/brazil_sensitivity_rate_0700_v1/phase7_test/random_policy_step_rollouts.parquet",
+          "sha256": "8042fa874ed29ba97b2ab4baebea870936a2a40d201e54024ebd9afc73d1fb45",
+          "rows": 3556
+        }
+      ],
+      "frozen_checkpoint_sha256": "7be955459e2ceedee3320dc930726a86f504b8926a71a8ca2e6b5d952dc423d1",
+      "effective_config_sha256": "eebdda7c7166e1ae8bf2bdd655934b64dec8b11084dbdc68b1f7f5debac5b28b",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de"
+    },
+    {
+      "rate_suffix": "1000",
+      "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/evaluation_manifest.json",
+      "sha256": "a9e5b79afbc7230f0bb41348f3483065ddc176b8a87d718b2bff8a3ef6c8c04f",
+      "episode_metrics": {
+        "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/test_episode_metrics.csv",
+        "sha256": "a535785909df691aa971f67a200e340cdd1a29ad0c0505eddcf9cd2d4d379a69",
+        "rows": 9114
+      },
+      "step_rollouts": [
+        {
+          "policy_name": "trained_dqn_fixed_margin",
+          "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/trained_dqn_fixed_margin_step_rollouts.parquet",
+          "sha256": "48af48a571181e9b7c9df0831f4730a7066f1b8e522d8b4a81fb433466a3a5c8",
+          "rows": 19310
+        },
+        {
+          "policy_name": "hold_to_terminal",
+          "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/hold_to_terminal_step_rollouts.parquet",
+          "sha256": "9d77f51bcb796db964278a8909d4f902bf1cfe9dee5d3d36ab3414aa926f2fb5",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_immediately",
+          "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/sell_immediately_step_rollouts.parquet",
+          "sha256": "6f19b880b053018efa606ad21d057dfb80c1987b1646d65da49beb90448a5287",
+          "rows": 1519
+        },
+        {
+          "policy_name": "sell_half_then_hold",
+          "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/sell_half_then_hold_step_rollouts.parquet",
+          "sha256": "88d0e02b4844852cec48afa9ca57994112603039bb11dc41daf39f526dd78ead",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_quarters_over_time",
+          "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/sell_quarters_over_time_step_rollouts.parquet",
+          "sha256": "4f72ba453032d5c39ec96dd549239dc501e4f3b12037ea15ac847fb27bca7be8",
+          "rows": 5866
+        },
+        {
+          "policy_name": "random_policy",
+          "path": "runs/brazil_sensitivity_rate_1000_v1/phase7_test/random_policy_step_rollouts.parquet",
+          "sha256": "d9321874a50b785c89d947886353ee6351411b414eb47daefad2cd73048d1540",
+          "rows": 3556
+        }
+      ],
+      "frozen_checkpoint_sha256": "5646540293c25cb5da4a1855d29a4da669049c1cbceac1a11be05e9f2451ff9a",
+      "effective_config_sha256": "9a37181b0d2c8d6d3305b861c6cea5fcfe7e544f56a1dd77e73494858696276a",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de"
+    },
+    {
+      "rate_suffix": "1050",
+      "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/evaluation_manifest.json",
+      "sha256": "0d6421aff89d16f89a8d27fb7d4bebea4f28c0ab01eeabac97b3c47a14b150bf",
+      "episode_metrics": {
+        "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/test_episode_metrics.csv",
+        "sha256": "27f06f2b2ec5a87d415f83a27286479616d1eefe3b11016db3dd01f968a9ad9e",
+        "rows": 9114
+      },
+      "step_rollouts": [
+        {
+          "policy_name": "trained_dqn_fixed_margin",
+          "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/trained_dqn_fixed_margin_step_rollouts.parquet",
+          "sha256": "56f18a7799068d88b4aecd661bfe3e13ad2443909f14e6865bd08ff9752b924d",
+          "rows": 30596
+        },
+        {
+          "policy_name": "hold_to_terminal",
+          "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/hold_to_terminal_step_rollouts.parquet",
+          "sha256": "0d18218e196de1b32a7e74f6408fac438cd9ce54a3455e66742a0d70b1dfdf92",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_immediately",
+          "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/sell_immediately_step_rollouts.parquet",
+          "sha256": "69871ee4c1cb92ceff8e7b0b8efc42d0daafbf887376fc5671f78cfe16556908",
+          "rows": 1519
+        },
+        {
+          "policy_name": "sell_half_then_hold",
+          "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/sell_half_then_hold_step_rollouts.parquet",
+          "sha256": "7cc91367fb61d103c07711d787076e84e00b6720ad8be46687e640c320f882a0",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_quarters_over_time",
+          "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/sell_quarters_over_time_step_rollouts.parquet",
+          "sha256": "7c704f49a6bc70cef1c61ac86c26abfcf594ded5c38eb1e9983b618d4189d1bc",
+          "rows": 5866
+        },
+        {
+          "policy_name": "random_policy",
+          "path": "runs/brazil_sensitivity_rate_1050_v1/phase7_test/random_policy_step_rollouts.parquet",
+          "sha256": "8ad2e1f606463f5e4f94d9b6113b69f36296e440025c9cbb55e79fc93842e09c",
+          "rows": 3556
+        }
+      ],
+      "frozen_checkpoint_sha256": "ac1a836591da6c498cb929e801162571e99df7ccf90855ae2291fc7c0fa4be1f",
+      "effective_config_sha256": "98a712213877e7b52d700bbc7ef9bca58d430a304257083e80c6e48c8e4ae376",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de"
+    },
+    {
+      "rate_suffix": "1200",
+      "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/evaluation_manifest.json",
+      "sha256": "387f17ddd31657d035d7f8b27e25f03f9c264759b1f71b97e2fd5fee984c347f",
+      "episode_metrics": {
+        "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/test_episode_metrics.csv",
+        "sha256": "1da847dcc304980803e494f96b59cdce4fb97b20bc1da34d71bb9906e8701fde",
+        "rows": 9114
+      },
+      "step_rollouts": [
+        {
+          "policy_name": "trained_dqn_fixed_margin",
+          "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/trained_dqn_fixed_margin_step_rollouts.parquet",
+          "sha256": "8b93e2a66c158f98701b84589cefabbee249158a0026f8703e7165c4b58ff34a",
+          "rows": 30938
+        },
+        {
+          "policy_name": "hold_to_terminal",
+          "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/hold_to_terminal_step_rollouts.parquet",
+          "sha256": "ae7a806e8a5bbf0d2cadb938e71549a1371b36c300c88c674be8cfe454b4b333",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_immediately",
+          "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/sell_immediately_step_rollouts.parquet",
+          "sha256": "71164462e077b350170c0c5518d59eae50d16af757de5af2319349347440bd5f",
+          "rows": 1519
+        },
+        {
+          "policy_name": "sell_half_then_hold",
+          "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/sell_half_then_hold_step_rollouts.parquet",
+          "sha256": "f9804f5471a9dfaf84eea8fd2357cf438414ab9f4eea8951fb060f6b42919f13",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_quarters_over_time",
+          "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/sell_quarters_over_time_step_rollouts.parquet",
+          "sha256": "550f06c97c2ecb7106f733b5d85ba4d2e6ebcf85e696a0dab9e9fed901286b7b",
+          "rows": 5866
+        },
+        {
+          "policy_name": "random_policy",
+          "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/random_policy_step_rollouts.parquet",
+          "sha256": "b7759ba02d7152ea01c29aeabb09b0ddbea78285b3c1fe8fa5302a1fa24ca525",
+          "rows": 3556
+        }
+      ],
+      "frozen_checkpoint_sha256": "8a59a6e7f23d22b5eb85d1eddfd16c2d232b77d92c910013e4a2d667dcd7be9e",
+      "effective_config_sha256": "1270f0e1a9a4f5e42e8e133d40f040d9842cae4278ee5497ba86b3e877f4cc62",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de"
+    },
+    {
+      "rate_suffix": "1375",
+      "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/evaluation_manifest.json",
+      "sha256": "0129117105b4a6f904a1f02c554155657bd222d361c658e1e1f06dd732028ca2",
+      "episode_metrics": {
+        "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/test_episode_metrics.csv",
+        "sha256": "70277ab4e1f24d487724e474dad3adb34ae8fef338941761a188b5625471b5d5",
+        "rows": 9114
+      },
+      "step_rollouts": [
+        {
+          "policy_name": "trained_dqn_fixed_margin",
+          "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/trained_dqn_fixed_margin_step_rollouts.parquet",
+          "sha256": "453eab054158b3dee83e52d35906183d44072ff04c2ca69280dd76bf00f6644c",
+          "rows": 32398
+        },
+        {
+          "policy_name": "hold_to_terminal",
+          "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/hold_to_terminal_step_rollouts.parquet",
+          "sha256": "5375996a98a3a7e1525bb02ef73a870e920d3d7a8a87006fe30f929ce54140b6",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_immediately",
+          "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/sell_immediately_step_rollouts.parquet",
+          "sha256": "ae47c8ef26f0ad509292de1ad3f2b4f98bcda66e1e0cab6206fc008e2d8aa434",
+          "rows": 1519
+        },
+        {
+          "policy_name": "sell_half_then_hold",
+          "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/sell_half_then_hold_step_rollouts.parquet",
+          "sha256": "40562dd5cf6a003703a6b651bb808b1ad1490f9ff1fa6a384d13f6ff6f998cd9",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_quarters_over_time",
+          "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/sell_quarters_over_time_step_rollouts.parquet",
+          "sha256": "e138dbad466fc4c57919728cd2bd61deb165b38935a14a91ea19fe167d249313",
+          "rows": 5866
+        },
+        {
+          "policy_name": "random_policy",
+          "path": "runs/brazil_sensitivity_rate_1375_v1/phase7_test/random_policy_step_rollouts.parquet",
+          "sha256": "b96dcd48eedb7b968515a5ddb29606a1dea3f511aa5c7a57dd878e0fd75bc908",
+          "rows": 3556
+        }
+      ],
+      "frozen_checkpoint_sha256": "b7bce3c161f8b758534fb1c19fc6e41bec73d6dec3b18c01eb359d5f53d7fb80",
+      "effective_config_sha256": "9dbf237cf232f6bc6b6fa3cd5d32559473bab1b9ed2e96373f82beb03575a955",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de"
+    },
+    {
+      "rate_suffix": "1500",
+      "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/evaluation_manifest.json",
+      "sha256": "97ceefd5b5b61679f42381cbdd5784c6a1f53d9cfab2c33bf141f9c8433dfdcb",
+      "episode_metrics": {
+        "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/test_episode_metrics.csv",
+        "sha256": "bb8835103dbd0fed029a90c3a028852ba8d19efc3d17c004ff4f09f293c73549",
+        "rows": 9114
+      },
+      "step_rollouts": [
+        {
+          "policy_name": "trained_dqn_fixed_margin",
+          "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/trained_dqn_fixed_margin_step_rollouts.parquet",
+          "sha256": "e58d8c0e9207615921a45c725a4f98cf5c8f2a3259a4773ba5b8f27c5438ec06",
+          "rows": 23585
+        },
+        {
+          "policy_name": "hold_to_terminal",
+          "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/hold_to_terminal_step_rollouts.parquet",
+          "sha256": "4e4f69afdd59b7f6a7efbd356b9c7b5c67d16982e5b4953bc50274a4570827b2",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_immediately",
+          "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/sell_immediately_step_rollouts.parquet",
+          "sha256": "4a81102bdfe3416d754752704efd1b52164ee109f197c8ffc96f3602a7fd5aa1",
+          "rows": 1519
+        },
+        {
+          "policy_name": "sell_half_then_hold",
+          "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/sell_half_then_hold_step_rollouts.parquet",
+          "sha256": "fa12fe3d1aa071f43fb4e1ebefd455393a0ff63061e753484d416d8886ae4371",
+          "rows": 126513
+        },
+        {
+          "policy_name": "sell_quarters_over_time",
+          "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/sell_quarters_over_time_step_rollouts.parquet",
+          "sha256": "6119ac0951e83f2cc4e0a32b3c30efe5810cc9659945aa9344a25a2f4dd71feb",
+          "rows": 5866
+        },
+        {
+          "policy_name": "random_policy",
+          "path": "runs/brazil_sensitivity_rate_1500_v1/phase7_test/random_policy_step_rollouts.parquet",
+          "sha256": "c33bfeedc22eff4cba195c0363f473980796c61a2ea3930e8fc21d8c365b7272",
+          "rows": 3556
+        }
+      ],
+      "frozen_checkpoint_sha256": "2854e015f1beffbf8a04961176417116e821ed76e3293c1d0beb57d63c46c183",
+      "effective_config_sha256": "3f56c3be66550cfb79f386b8feb119a89bdb4b3a56e879f00495146d535c72d5",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de"
+    }
+  ],
+  "outputs": [
+    {
+      "path": "runs/brazil_sensitivity_v1/tables/policy_summary.csv",
+      "sha256": "10c25b380c0cf1a402a3db0dc3eb4ed1beb39c6664eff5c96b8634f6bc4800ae",
+      "bytes": 5560
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/tables/dqn_vs_hold.csv",
+      "sha256": "6470add9448344ee29f98897ac2442fb950f0f3b8fe57e6987c746f75d71882f",
+      "bytes": 1141
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/tables/cross_rate_paired.csv",
+      "sha256": "4f973cc0a6a8bc3cf7b9161565f7c1f2c0cc83bff310267a89b0f93a0b388b3c",
+      "bytes": 9376
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/tables/behavior_summary.csv",
+      "sha256": "5662575dd35ef8fdb61226e7702a9231ac1d027134cdbc8856836fca097b2a5f",
+      "bytes": 6700
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/tables/action_shares.csv",
+      "sha256": "55f929476fa964872a0b8d2ab524bcefbcb80801c31603e72eb164379244616f",
+      "bytes": 3442
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/tables/reconciliation.csv",
+      "sha256": "db282cc38099908e9bc22ba96ddb366cfc9b5b3582bbec4942745e51e748007f",
+      "bytes": 4352
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/final_wealth_by_rate.png",
+      "sha256": "44cb83fa39c917610c38883cd2d9989db97ab8c809c614320fd1cff99471664f",
+      "bytes": 139533
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/final_wealth_by_rate.svg",
+      "sha256": "0b95f9f323b47322f3d9f8ef821b4d6c92dcd46f9aac294d769817d0e7e41a4a",
+      "bytes": 62704
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/dqn_excess_vs_hold.png",
+      "sha256": "e2567e2ea13afa498431e74271fae14e89139456862c804073932d3ed062151a",
+      "bytes": 69839
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/dqn_excess_vs_hold.svg",
+      "sha256": "91244705a4d8ad5e3050aea7ac935f421c0835e8a1be44e7cca578e40a305778",
+      "bytes": 46279
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/sale_and_cash_behavior.png",
+      "sha256": "6de95018f2ce5d854ae0053ca3e18d1082e528801ce177b35dd756c16f90635f",
+      "bytes": 152017
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/sale_and_cash_behavior.svg",
+      "sha256": "f9f3bbe205b395037cf4be65254358a2ece9a47d38018f7b5ea7b8f8ccdc2c7d",
+      "bytes": 96605
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/dqn_action_shares.png",
+      "sha256": "b8cc2cec4435f5f873840e9c96443193d0b3b12e97c35af85d820aa841baef6c",
+      "bytes": 50700
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/figures/dqn_action_shares.svg",
+      "sha256": "1addf4fa9e22723734d7dbdc0be974b6feec113bb29caf1dc506daf802cc444b",
+      "bytes": 43157
+    },
+    {
+      "path": "runs/brazil_sensitivity_v1/summary.md",
+      "sha256": "f57518120e9d954e27ec4710999e92bd6b2b1c5a4ccb23529799364ae87569a8",
+      "bytes": 7579
+    }
+  ],
+  "reconciliation_max_abs_residual": 1.7763568394002505e-15
+}

@@ -1,0 +1,83 @@
+{
+  "completed_utc": "2026-09-25T20:31:00.472648+00:00",
+  "phase": 7,
+  "rate_suffix": "1200",
+  "annual_cash_rate": 0.12,
+  "test_access_checkpoint": "runs/brazil_phase7_test_access/test_access_checkpoint.json",
+  "test_access_checkpoint_sha256": "de4efb15f48b99594f58a6dbc2591bbce0e514d731c3937d4e4c20ea1f48f002",
+  "frozen_checkpoint": "runs/brazil_sensitivity_rate_1200_v1/best_validation_model.pt",
+  "frozen_checkpoint_sha256": "8a59a6e7f23d22b5eb85d1eddfd16c2d232b77d92c910013e4a2d667dcd7be9e",
+  "effective_config": "runs/brazil_sensitivity_rate_1200_v1/config_used.yaml",
+  "effective_config_sha256": "1270f0e1a9a4f5e42e8e133d40f040d9842cae4278ee5497ba86b3e877f4cc62",
+  "scenario_parquet": "data/episodes/drl_episodes_brazil_v1.parquet",
+  "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+  "state_freeze": "data/freeze/v2/allowed_state_columns_v2.json",
+  "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+  "test_id_ordered_sha256": "273d2547e2cba607dbbb87a2f5125a304516caf70fd7269859968b30c2b6f98c",
+  "test_id_count": 1519,
+  "seed": 42,
+  "fixed_decision_margins": {
+    "first_sale": 0.07,
+    "subsequent_sale": 0.02
+  },
+  "policies": [
+    "trained_dqn_fixed_margin",
+    "hold_to_terminal",
+    "sell_immediately",
+    "sell_half_then_hold",
+    "sell_quarters_over_time",
+    "random_policy"
+  ],
+  "episode_metrics": {
+    "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/test_episode_metrics.csv",
+    "sha256": "1da847dcc304980803e494f96b59cdce4fb97b20bc1da34d71bb9906e8701fde",
+    "rows": 9114
+  },
+  "step_rollouts": [
+    {
+      "policy_name": "trained_dqn_fixed_margin",
+      "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/trained_dqn_fixed_margin_step_rollouts.parquet",
+      "sha256": "8b93e2a66c158f98701b84589cefabbee249158a0026f8703e7165c4b58ff34a",
+      "rows": 30938
+    },
+    {
+      "policy_name": "hold_to_terminal",
+      "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/hold_to_terminal_step_rollouts.parquet",
+      "sha256": "ae7a806e8a5bbf0d2cadb938e71549a1371b36c300c88c674be8cfe454b4b333",
+      "rows": 126513
+    },
+    {
+      "policy_name": "sell_immediately",
+      "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/sell_immediately_step_rollouts.parquet",
+      "sha256": "71164462e077b350170c0c5518d59eae50d16af757de5af2319349347440bd5f",
+      "rows": 1519
+    },
+    {
+      "policy_name": "sell_half_then_hold",
+      "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/sell_half_then_hold_step_rollouts.parquet",
+      "sha256": "f9804f5471a9dfaf84eea8fd2357cf438414ab9f4eea8951fb060f6b42919f13",
+      "rows": 126513
+    },
+    {
+      "policy_name": "sell_quarters_over_time",
+      "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/sell_quarters_over_time_step_rollouts.parquet",
+      "sha256": "550f06c97c2ecb7106f733b5d85ba4d2e6ebcf85e696a0dab9e9fed901286b7b",
+      "rows": 5866
+    },
+    {
+      "policy_name": "random_policy",
+      "path": "runs/brazil_sensitivity_rate_1200_v1/phase7_test/random_policy_step_rollouts.parquet",
+      "sha256": "b7759ba02d7152ea01c29aeabb09b0ddbea78285b3c1fe8fa5302a1fa24ca525",
+      "rows": 3556
+    }
+  ],
+  "checks": {
+    "episodes": 9114,
+    "steps": 294905,
+    "base_reward_telescoping": 9114,
+    "tax_cash_identities": 9114,
+    "terminal_completion": 9114,
+    "hold_zero_interest": 1519,
+    "immediate_max_holding": 1519
+  }
+}

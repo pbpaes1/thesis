@@ -1,0 +1,3 @@
+runs/brazil_phase7_test_access/** -text -diff
+runs/brazil_sensitivity_rate_*/phase7_test/** -text -diff
+runs/brazil_sensitivity_v1/** -text -diff

@@ -1,0 +1,133 @@
+{
+  "record_type": "brazil_phase7_test_access_checkpoint",
+  "captured_utc": "2026-09-25T20:07:58.662287+00:00",
+  "model_freeze_path": "docs/brazil_sensitivity_model_freeze_v1.md",
+  "model_freeze_sha256": "75ff588e72e407e3a8c2cdd27976c691bb31dbf8f10bf526db8c616b122456e1",
+  "saved_test_ids_path": "runs/train_reward_c_lite_v5_full/episode_splits.csv",
+  "saved_test_id_count": 1519,
+  "saved_test_id_ordered_sha256": "273d2547e2cba607dbbb87a2f5125a304516caf70fd7269859968b30c2b6f98c",
+  "policies": [
+    "trained_dqn_fixed_margin",
+    "hold_to_terminal",
+    "sell_immediately",
+    "sell_half_then_hold",
+    "sell_quarters_over_time",
+    "random_policy"
+  ],
+  "models": [
+    {
+      "rate_suffix": "0700",
+      "annual_cash_rate": 0.07,
+      "checkpoint_path": "runs/brazil_sensitivity_rate_0700_v1/best_validation_model.pt",
+      "checkpoint_sha256": "7be955459e2ceedee3320dc930726a86f504b8926a71a8ca2e6b5d952dc423d1",
+      "effective_config_path": "runs/brazil_sensitivity_rate_0700_v1/config_used.yaml",
+      "effective_config_sha256": "eebdda7c7166e1ae8bf2bdd655934b64dec8b11084dbdc68b1f7f5debac5b28b",
+      "scenario_parquet_path": "data/episodes/drl_episodes_brazil_v1.parquet",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_path": "data/freeze/v2/allowed_state_columns_v2.json",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+      "training_manifest_path": "runs/brazil_sensitivity_rate_0700_v1/reproducibility_manifest.json",
+      "training_manifest_pre_access_sha256": "876d236fd3f335fa3c9f0945972a92a239eeed781d3256d3f93a1cffc3e4dd8c",
+      "seed": 42,
+      "fixed_decision_margins": {
+        "first_sale": 0.07,
+        "subsequent_sale": 0.02
+      }
+    },
+    {
+      "rate_suffix": "1000",
+      "annual_cash_rate": 0.1,
+      "checkpoint_path": "runs/brazil_sensitivity_rate_1000_v1/best_validation_model.pt",
+      "checkpoint_sha256": "5646540293c25cb5da4a1855d29a4da669049c1cbceac1a11be05e9f2451ff9a",
+      "effective_config_path": "runs/brazil_sensitivity_rate_1000_v1/config_used.yaml",
+      "effective_config_sha256": "9a37181b0d2c8d6d3305b861c6cea5fcfe7e544f56a1dd77e73494858696276a",
+      "scenario_parquet_path": "data/episodes/drl_episodes_brazil_v1.parquet",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_path": "data/freeze/v2/allowed_state_columns_v2.json",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+      "training_manifest_path": "runs/brazil_sensitivity_rate_1000_v1/reproducibility_manifest.json",
+      "training_manifest_pre_access_sha256": "a67071c0b5ee05604a4a632eeccf0701f734d71f599a6361d0e155d134399df1",
+      "seed": 42,
+      "fixed_decision_margins": {
+        "first_sale": 0.07,
+        "subsequent_sale": 0.02
+      }
+    },
+    {
+      "rate_suffix": "1050",
+      "annual_cash_rate": 0.105,
+      "checkpoint_path": "runs/brazil_sensitivity_rate_1050_v1/best_validation_model.pt",
+      "checkpoint_sha256": "ac1a836591da6c498cb929e801162571e99df7ccf90855ae2291fc7c0fa4be1f",
+      "effective_config_path": "runs/brazil_sensitivity_rate_1050_v1/config_used.yaml",
+      "effective_config_sha256": "98a712213877e7b52d700bbc7ef9bca58d430a304257083e80c6e48c8e4ae376",
+      "scenario_parquet_path": "data/episodes/drl_episodes_brazil_v1.parquet",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_path": "data/freeze/v2/allowed_state_columns_v2.json",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+      "training_manifest_path": "runs/brazil_sensitivity_rate_1050_v1/reproducibility_manifest.json",
+      "training_manifest_pre_access_sha256": "5fe5ac90d0da8f07dc675b9cc7d035051538d6b6a0d592b82d585c0eaf997e1a",
+      "seed": 42,
+      "fixed_decision_margins": {
+        "first_sale": 0.07,
+        "subsequent_sale": 0.02
+      }
+    },
+    {
+      "rate_suffix": "1200",
+      "annual_cash_rate": 0.12,
+      "checkpoint_path": "runs/brazil_sensitivity_rate_1200_v1/best_validation_model.pt",
+      "checkpoint_sha256": "8a59a6e7f23d22b5eb85d1eddfd16c2d232b77d92c910013e4a2d667dcd7be9e",
+      "effective_config_path": "runs/brazil_sensitivity_rate_1200_v1/config_used.yaml",
+      "effective_config_sha256": "1270f0e1a9a4f5e42e8e133d40f040d9842cae4278ee5497ba86b3e877f4cc62",
+      "scenario_parquet_path": "data/episodes/drl_episodes_brazil_v1.parquet",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_path": "data/freeze/v2/allowed_state_columns_v2.json",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+      "training_manifest_path": "runs/brazil_sensitivity_rate_1200_v1/reproducibility_manifest.json",
+      "training_manifest_pre_access_sha256": "5901f7069a28201816ea3ce2123b6f274585116ebad1c1e6f0043050a65881ef",
+      "seed": 42,
+      "fixed_decision_margins": {
+        "first_sale": 0.07,
+        "subsequent_sale": 0.02
+      }
+    },
+    {
+      "rate_suffix": "1375",
+      "annual_cash_rate": 0.1375,
+      "checkpoint_path": "runs/brazil_sensitivity_rate_1375_v1/best_validation_model.pt",
+      "checkpoint_sha256": "b7bce3c161f8b758534fb1c19fc6e41bec73d6dec3b18c01eb359d5f53d7fb80",
+      "effective_config_path": "runs/brazil_sensitivity_rate_1375_v1/config_used.yaml",
+      "effective_config_sha256": "9dbf237cf232f6bc6b6fa3cd5d32559473bab1b9ed2e96373f82beb03575a955",
+      "scenario_parquet_path": "data/episodes/drl_episodes_brazil_v1.parquet",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_path": "data/freeze/v2/allowed_state_columns_v2.json",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+      "training_manifest_path": "runs/brazil_sensitivity_rate_1375_v1/reproducibility_manifest.json",
+      "training_manifest_pre_access_sha256": "b669a0e9e73a6bed0eb955f6eab6989928c9e3b11ed77db85cd6caf14530dfe5",
+      "seed": 42,
+      "fixed_decision_margins": {
+        "first_sale": 0.07,
+        "subsequent_sale": 0.02
+      }
+    },
+    {
+      "rate_suffix": "1500",
+      "annual_cash_rate": 0.15,
+      "checkpoint_path": "runs/brazil_sensitivity_rate_1500_v1/best_validation_model.pt",
+      "checkpoint_sha256": "2854e015f1beffbf8a04961176417116e821ed76e3293c1d0beb57d63c46c183",
+      "effective_config_path": "runs/brazil_sensitivity_rate_1500_v1/config_used.yaml",
+      "effective_config_sha256": "3f56c3be66550cfb79f386b8feb119a89bdb4b3a56e879f00495146d535c72d5",
+      "scenario_parquet_path": "data/episodes/drl_episodes_brazil_v1.parquet",
+      "scenario_parquet_sha256": "28ae8ff389d0be2b493b426bd32822b2b36f642f172f2f7b418ce5187ce7e2ff",
+      "state_freeze_path": "data/freeze/v2/allowed_state_columns_v2.json",
+      "state_freeze_sha256": "2653b2f9210a7d27c578b8bc6112da45c0d241e44559796d7533fde1517ef7de",
+      "training_manifest_path": "runs/brazil_sensitivity_rate_1500_v1/reproducibility_manifest.json",
+      "training_manifest_pre_access_sha256": "4a60716fde3939358caa0e1ed02be0d064b0ba69ebc889001c1dea6b8f19842c",
+      "seed": 42,
+      "fixed_decision_margins": {
+        "first_sale": 0.07,
+        "subsequent_sale": 0.02
+      }
+    }
+  ]
+}
